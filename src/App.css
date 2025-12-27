@@ -327,10 +327,25 @@ body {
   min-width: 0;
 }
 
+.dropdown-item-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
 .dropdown-item-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dropdown-item-context {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  opacity: 0.8;
 }
 
 .dropdown-item:hover {
@@ -472,6 +487,49 @@ body {
   .message-container.bot {
     padding-left: 60px;
   }
+}
+
+/* System Message Styling */
+.message-container.system {
+  justify-content: center;
+  margin: 12px 0;
+}
+
+.system-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  max-width: 80%;
+  margin: 0 auto;
+}
+
+.system-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-color);
+  flex-shrink: 0;
+}
+
+.system-text {
+  flex: 1;
+  text-align: center;
+}
+
+.system-timestamp {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-left: 8px;
+  flex-shrink: 0;
 }
 
 /* Empty State */
@@ -759,7 +817,7 @@ kbd {
   position: absolute;
   top: -12px;
   right: 12px;
-  background: var(--primary-color);
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
   color: white;
   padding: 4px 10px;
   border-radius: 12px;
@@ -769,6 +827,9 @@ kbd {
   display: flex;
   align-items: center;
   gap: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 1;
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .message.partial {
@@ -1048,6 +1109,7 @@ kbd {
   top: auto !important;
   transform: none !important;
   max-height: 50vh !important;
+  overflow-y: auto !important;
   margin: 0 !important;
   z-index: 1001 !important;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
@@ -1480,6 +1542,37 @@ kbd {
     font-size: 0.85rem;
   }
   
+  /* System messages mobile adjustments */
+  .system-message {
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 12px;
+    max-width: 90%;
+  }
+  
+  .system-text {
+    font-size: 0.75rem;
+    text-align: center;
+  }
+  
+  .system-timestamp {
+    font-size: 0.65rem;
+    margin-left: 0;
+  }
+  
+  /* Model badge mobile adjustments */
+  .model-badge-inside {
+    font-size: 0.6rem;
+    padding: 3px 8px;
+    top: -10px;
+    right: 8px;
+  }
+  
+  /* Hide context size on mobile to save space */
+  .dropdown-item-context {
+    display: none;
+  }
+  
   /* Message actions always visible on mobile */
   .message-actions-container {
     opacity: 1;
@@ -1726,6 +1819,15 @@ kbd {
   .icon-btn span,
   .server-status span {
     display: inline !important;
+  }
+  
+  /* Ensure desktop dropdown has proper width */
+  .desktop-only .custom-dropdown {
+    min-width: 180px;
+  }
+  
+  .desktop-only .dropdown-toggle {
+    min-width: 180px;
   }
 }
 

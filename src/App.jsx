@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import {
   Bot,
@@ -26,12 +26,57 @@ import {
   Code,
   X,
   Save,
-  FileEdit
+  FileEdit,
+  Info
 } from 'lucide-react';
 
 const OLLAMA_API_URL = 'http://localhost:11434/api';
 
-// Custom Dropdown Component - FIXED for model display
+// Model information database
+const MODEL_INFO = {
+  'llama3.1': { contextWindow: 8192, description: 'Meta Llama 3.1' },
+  'llama3.1:latest': { contextWindow: 8192, description: 'Meta Llama 3.1' },
+  'llama3.2': { contextWindow: 8192, description: 'Meta Llama 3.2' },
+  'llama3.2:latest': { contextWindow: 8192, description: 'Meta Llama 3.2' },
+  'mistral': { contextWindow: 8192, description: 'Mistral 7B' },
+  'mistral:latest': { contextWindow: 8192, description: 'Mistral 7B' },
+  'mixtral': { contextWindow: 32768, description: 'Mixtral 8x7B' },
+  'mixtral:latest': { contextWindow: 32768, description: 'Mixtral 8x7B' },
+  'codellama': { contextWindow: 16384, description: 'Code Llama' },
+  'codellama:latest': { contextWindow: 16384, description: 'Code Llama' },
+  'phi': { contextWindow: 2048, description: 'Microsoft Phi-2' },
+  'phi:latest': { contextWindow: 2048, description: 'Microsoft Phi-2' },
+  'neural-chat': { contextWindow: 4096, description: 'Intel Neural Chat' },
+  'neural-chat:latest': { contextWindow: 4096, description: 'Intel Neural Chat' },
+  'starling-lm': { contextWindow: 8192, description: 'Starling LM' },
+  'starling-lm:latest': { contextWindow: 8192, description: 'Starling LM' },
+  'qwen': { contextWindow: 8192, description: 'Qwen 7B' },
+  'qwen:latest': { contextWindow: 8192, description: 'Qwen 7B' },
+  'gemma': { contextWindow: 8192, description: 'Google Gemma' },
+  'gemma:latest': { contextWindow: 8192, description: 'Google Gemma' },
+  'llama2': { contextWindow: 4096, description: 'Meta Llama 2' },
+  'llama2:latest': { contextWindow: 4096, description: 'Meta Llama 2' },
+  'dolphin-llama3': { contextWindow: 8192, description: 'Dolphin Llama 3' },
+  'dolphin-mistral': { contextWindow: 8192, description: 'Dolphin Mistral' },
+  'orca-mini': { contextWindow: 2048, description: 'Orca Mini' },
+  'orca-mini:latest': { contextWindow: 2048, description: 'Orca Mini' },
+  'vicuna': { contextWindow: 4096, description: 'Vicuna' },
+  'vicuna:latest': { contextWindow: 4096, description: 'Vicuna' },
+  'wizardcoder': { contextWindow: 8192, description: 'WizardCoder' },
+  'wizardcoder:latest': { contextWindow: 8192, description: 'WizardCoder' },
+  'wizardlm': { contextWindow: 8192, description: 'WizardLM' },
+  'wizardlm:latest': { contextWindow: 8192, description: 'WizardLM' },
+  'openhermes': { contextWindow: 4096, description: 'OpenHermes' },
+  'openhermes:latest': { contextWindow: 4096, description: 'OpenHermes' },
+  'nous-hermes': { contextWindow: 4096, description: 'Nous Hermes' },
+  'nous-hermes:latest': { contextWindow: 4096, description: 'Nous Hermes' },
+  'deepseek-coder': { contextWindow: 16384, description: 'DeepSeek Coder' },
+  'deepseek-coder:latest': { contextWindow: 16384, description: 'DeepSeek Coder' },
+  'solar': { contextWindow: 8192, description: 'Solar' },
+  'solar:latest': { contextWindow: 8192, description: 'Solar' }
+};
+
+// Custom Dropdown Component
 const CustomDropdown = ({ options, value, onChange, disabled, placeholder = "Select..." }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
@@ -122,27 +167,37 @@ const CustomDropdown = ({ options, value, onChange, disabled, placeholder = "Sel
                 </div>
               </div>
             ) : (
-              options.map((option) => (
-                <button
-                  key={option.value}
-                  className={`dropdown-item ${value === option.value ? 'selected' : ''}`}
-                  onClick={() => handleSelect(option.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleSelect(option.value);
-                    }
-                  }}
-                  type="button"
-                >
-                  <div className="dropdown-item-content">
-                    <Code size={14} />
-                    <span className="dropdown-item-label">{option.label}</span>
-                  </div>
-                  {value === option.value && <Check size={14} className="checkmark" />}
-                </button>
-              ))
+              options.map((option) => {
+                const modelInfo = MODEL_INFO[option.value] || MODEL_INFO[`${option.value}:latest`];
+                const contextSize = modelInfo?.contextWindow || '?';
+                
+                return (
+                  <button
+                    key={option.value}
+                    className={`dropdown-item ${value === option.value ? 'selected' : ''}`}
+                    onClick={() => handleSelect(option.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleSelect(option.value);
+                      }
+                    }}
+                    type="button"
+                  >
+                    <div className="dropdown-item-content">
+                      <Code size={14} />
+                      <div className="dropdown-item-info">
+                        <span className="dropdown-item-label">{option.label}</span>
+                        {modelInfo && (
+                          <span className="dropdown-item-context">{contextSize} tokens</span>
+                        )}
+                      </div>
+                    </div>
+                    {value === option.value && <Check size={14} className="checkmark" />}
+                  </button>
+                );
+              })
             )}
           </div>
         </>
@@ -169,6 +224,14 @@ const STORAGE_KEYS = {
   SETTINGS: 'ollama_chat_settings'
 };
 
+// Helper to get model info
+const getModelInfo = (modelName) => {
+  return MODEL_INFO[modelName] || MODEL_INFO[`${modelName}:latest`] || { 
+    contextWindow: 4096, 
+    description: modelName 
+  };
+};
+
 function App() {
   // State
   const [messages, setMessages] = useState(() => {
@@ -179,14 +242,14 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-    return saved ? JSON.parse(saved).model || 'llama3.1' : 'llama3.1';
+    return saved ? JSON.parse(saved).model || 'llama3.1:latest' : 'llama3.1:latest';
   });
-  const [availableModels, setAvailableModels] = useState([]); // Changed from ['llama3.1'] to []
+  const [availableModels, setAvailableModels] = useState([]);
   const [ollamaStatus, setOllamaStatus] = useState('checking');
   const [sessionId] = useState(generateSessionId());
   const [isStreaming, setIsStreaming] = useState(false);
   const [abortController, setAbortController] = useState(null);
-  const [modelsError, setModelsError] = useState(null); // Add error state
+  const [modelsError, setModelsError] = useState(null);
   
   // Add initialization state
   const [isInitialized, setIsInitialized] = useState(false);
@@ -257,6 +320,70 @@ function App() {
       container.setAttribute('data-replicated-value', input);
     }
   }, [input]);
+
+  // Model change handler
+  const handleModelChange = useCallback(async (newModel) => {
+    // If we're changing models mid-conversation, show a confirmation with more info
+    if (messages.length > 0 && selectedModel !== newModel && !isLoading && !isStreaming) {
+      const modelInfo = getModelInfo(newModel);
+      const currentModelInfo = getModelInfo(selectedModel);
+      
+      let warningMessage = `Changing model from ${selectedModel} to ${newModel}\n\n`;
+      
+      if (modelInfo && currentModelInfo) {
+        if (modelInfo.contextWindow < currentModelInfo.contextWindow) {
+          warningMessage += `⚠️ ${newModel} has a smaller context window ` +
+                           `(${modelInfo.contextWindow} vs ${currentModelInfo.contextWindow} tokens).\n` +
+                           `Some earlier messages may be truncated.\n\n`;
+        } else if (modelInfo.contextWindow > currentModelInfo.contextWindow) {
+          warningMessage += `✅ ${newModel} has a larger context window ` +
+                           `(${modelInfo.contextWindow} vs ${currentModelInfo.contextWindow} tokens).\n` +
+                           `More conversation history will be preserved.\n\n`;
+        }
+      }
+      
+      warningMessage += `The new model will see the full conversation history.\nContinue?`;
+      
+      const shouldChange = window.confirm(warningMessage);
+      
+      if (!shouldChange) {
+        return;
+      }
+    }
+    
+    // Update the model
+    setSelectedModel(newModel);
+    
+    // Stop any ongoing generation
+    if (isStreaming && abortController) {
+      abortController.abort();
+      setIsLoading(false);
+      setIsStreaming(false);
+      setAbortController(null);
+    }
+    
+    // Cancel any editing
+    if (editingMessageId) {
+      cancelEditing();
+    }
+    
+    // Add a system message about the model change
+    if (messages.length > 0 && selectedModel !== newModel) {
+      const systemMessage = {
+        id: Date.now(),
+        sender: 'system',
+        text: `Model changed from ${selectedModel} to ${newModel}`,
+        timestamp: new Date(),
+        isPartial: false,
+        isSystem: true
+      };
+      
+      setMessages(prev => [...prev, systemMessage]);
+    }
+    
+    // Refresh models list
+    await fetchAvailableModels();
+  }, [messages, selectedModel, isLoading, isStreaming, abortController, editingMessageId]);
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -421,8 +548,8 @@ function App() {
         
         // If selected model is not available, switch to first available
         if (!modelNames.includes(selectedModel) && modelNames.length > 0) {
+          console.log(`Selected model ${selectedModel} not available, switching to ${modelNames[0]}`);
           setSelectedModel(modelNames[0]);
-          console.log('Switched to model:', modelNames[0]);
         }
       } else {
         setAvailableModels([]);
@@ -577,15 +704,57 @@ function App() {
     await sendStreamingResponse(input, false);
   };
 
+  // Prepare chat messages with context window awareness
+  const prepareChatMessages = useCallback((messagesArray, targetModel) => {
+    const modelInfo = getModelInfo(targetModel);
+    const maxTokens = modelInfo.contextWindow || 4096;
+    
+    // Convert messages to chat format
+    const chatMessages = [];
+    const allMessages = [...messagesArray].filter(msg => !msg.isPartial && !msg.isSystem);
+    
+    // Rough token estimation function
+    const estimateTokens = (text) => {
+      // Very rough estimation: 4 chars ≈ 1 token, plus some for metadata
+      return Math.ceil(text.length / 4) + 20;
+    };
+    
+    // Add messages from newest to oldest until we reach context limit
+    let estimatedTokens = 0;
+    
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      const msg = allMessages[i];
+      if (msg.sender === 'user' || msg.sender === 'bot') {
+        const role = msg.sender === 'user' ? 'user' : 'assistant';
+        const content = msg.text;
+        
+        const messageTokens = estimateTokens(content);
+        
+        // Reserve 20% of context for response
+        if (estimatedTokens + messageTokens > maxTokens * 0.8) {
+          console.log(`Context window limit reached after ${estimatedTokens} tokens for ${targetModel}`);
+          break;
+        }
+        
+        chatMessages.unshift({ role, content });
+        estimatedTokens += messageTokens;
+      }
+    }
+    
+    console.log(`Prepared ${chatMessages.length} messages for ${targetModel}, estimated ${estimatedTokens}/${maxTokens} tokens`);
+    return chatMessages;
+  }, []);
+
   const sendStreamingResponse = async (userInput, isEdit = false) => {
     if (!isInitialized || (isLoading && !isEdit)) return;
     
-    // Check if we have a valid model
-    if (!selectedModel || availableModels.length === 0) {
+    // Double-check we have the selected model available
+    const currentModel = selectedModel;
+    if (!currentModel || availableModels.length === 0 || !availableModels.includes(currentModel)) {
       setMessages(prev => [...prev, {
         id: Date.now(),
         sender: 'bot',
-        text: 'Error: No model selected or available. Please select a model from the dropdown.',
+        text: `Error: Model "${currentModel}" is not available. Please select a different model from the dropdown.`,
         timestamp: new Date(),
         isPartial: false,
         isError: true
@@ -598,6 +767,7 @@ function App() {
     setIsLoading(true);
     streamBuffer.current = '';
     
+    // Clear any partial messages
     setMessages(prev => {
       const newMessages = [...prev];
       return newMessages.filter(msg => !(msg.sender === 'bot' && msg.isPartial));
@@ -609,7 +779,8 @@ function App() {
       sender: 'bot',
       text: '',
       timestamp: new Date(),
-      isPartial: true
+      isPartial: true,
+      model: currentModel // Store which model is generating this
     }]);
 
     try {
@@ -618,41 +789,29 @@ function App() {
 
       const currentMessages = messages.filter(msg => !msg.isPartial);
       
-      const chatMessages = [];
+      // Use the context-aware message preparation
+      const chatMessages = prepareChatMessages(currentMessages, currentModel);
       
-      currentMessages.forEach(msg => {
-        if (msg.sender === 'user') {
-          chatMessages.push({
-            role: 'user',
-            content: msg.text
-          });
-        } else if (msg.sender === 'bot') {
-          chatMessages.push({
-            role: 'assistant',
-            content: msg.text
-          });
-        }
-      });
-      
+      // Add the new user message
       chatMessages.push({
         role: 'user',
         content: userInput
       });
 
-      console.log('Sending to Ollama API:', {
-        model: selectedModel,
+      console.log('Sending to Ollama API with model:', currentModel, {
         messageCount: chatMessages.length,
-        lastMessage: chatMessages[chatMessages.length - 1],
-        isEdit: isEdit
+        isEdit: isEdit,
+        contextWindow: getModelInfo(currentModel).contextWindow
       });
 
+      // Make sure we use the current selected model
       const response = await fetch(`${OLLAMA_API_URL}/chat`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          model: selectedModel,
+          model: currentModel, // Use the current model
           messages: chatMessages,
           stream: true,
           options: {
@@ -690,6 +849,7 @@ function App() {
                 
                 if (lastMessage.sender === 'bot' && lastMessage.isPartial) {
                   lastMessage.text = streamBuffer.current;
+                  lastMessage.model = currentModel; // Update model info
                 }
                 
                 return newMessages;
@@ -704,6 +864,7 @@ function App() {
                 if (lastMessage.sender === 'bot') {
                   lastMessage.isPartial = false;
                   lastMessage.timestamp = new Date();
+                  lastMessage.model = currentModel;
                 }
                 
                 return newMessages;
@@ -712,7 +873,6 @@ function App() {
             
           } catch (e) {
             console.error('Error parsing stream data:', e);
-            console.log('Raw line that failed to parse:', line);
           }
         }
       }
@@ -729,6 +889,7 @@ function App() {
             lastMessage.text = (streamBuffer.current || '') + `\n\n[Error: ${error.message || 'Failed to connect to Ollama'}]`;
             lastMessage.isPartial = false;
             lastMessage.isError = true;
+            lastMessage.model = currentModel;
           }
           
           return newMessages;
@@ -844,7 +1005,7 @@ function App() {
             <CustomDropdown
               options={modelOptions}
               value={selectedModel}
-              onChange={setSelectedModel}
+              onChange={handleModelChange}
               disabled={isLoading || ollamaStatus === 'error' || editingMessageId || isRespondingToEdit.current}
               placeholder="Select model..."
             />
@@ -915,123 +1076,142 @@ function App() {
                   <Keyboard size={16} />
                   <span><kbd>Ctrl</kbd> + <kbd>K</kbd> to clear input</span>
                 </div>
+                <div className="hint-item">
+                  <Info size={16} />
+                  <span>Switch models anytime - conversation history preserved</span>
+                </div>
               </div>
             </div>
           ) : (
             messages.map((msg, index) => (
               <div 
                 key={msg.id || index} 
-                className={`message-container ${msg.sender} ${editingMessageId === msg.id ? 'editing' : ''}`}
+                className={`message-container ${msg.sender} ${msg.isSystem ? 'system' : ''} ${editingMessageId === msg.id ? 'editing' : ''}`}
               >
-                <div className="sender-badge-container">
-                  <div className="sender-badge-outside">
-                    <div className="sender-icon">
-                      {msg.sender === 'user' ? <User size={18} /> : <Bot size={18} />}
+                {msg.isSystem ? (
+                  <div className="system-message">
+                    <div className="system-icon">
+                      <Info size={14} />
                     </div>
+                    <span className="system-text">{msg.text}</span>
+                    <span className="system-timestamp">
+                      <Clock size={10} />
+                      {formatTime(msg.timestamp)}
+                    </span>
                   </div>
-                  <span className="badge-timestamp">
-                    <Clock size={10} />
-                    {formatTime(msg.timestamp)}
-                  </span>
-                </div>
-
-                <div className="message-bubble">
-                  <div 
-                    className={`message ${msg.sender} ${msg.isPartial ? 'partial' : ''} ${msg.isError ? 'error' : ''}`}
-                  >
-                    {msg.model && msg.sender === 'bot' && (
-                      <div className="model-badge-inside">
-                        <Cpu size={12} />
-                        <span>{selectedModel}</span>
-                      </div>
-                    )}
-                    
-                    <div className="message-content">
-                      {editingMessageId === msg.id ? (
-                        <div className="edit-container">
-                          <div className="edit-textarea-container" data-replicated-value={editingText}>
-                            <textarea
-                              ref={editTextareaRef}
-                              value={editingText}
-                              onChange={handleEditTextChange}
-                              onKeyDown={(e) => handleEditTextareaKeyDown(e, msg.id)}
-                              className="edit-textarea"
-                              rows="1"
-                            />
-                          </div>
-                          <div className="edit-actions">
-                            <button
-                              onClick={() => saveEditedMessage(msg.id)}
-                              className="action-btn save-btn"
-                              title="Save changes (Enter)"
-                              disabled={isLoading || isRespondingToEdit.current}
-                            >
-                              <Save size={16} />
-                              <span>Save</span>
-                            </button>
-                            <button
-                              onClick={cancelEditing}
-                              className="action-btn cancel-btn"
-                              title="Cancel (Esc)"
-                            >
-                              <X size={16} />
-                              <span>Cancel</span>
-                            </button>
-                          </div>
+                ) : (
+                  <>
+                    <div className="sender-badge-container">
+                      <div className="sender-badge-outside">
+                        <div className="sender-icon">
+                          {msg.sender === 'user' ? <User size={18} /> : <Bot size={18} />}
                         </div>
-                      ) : (
-                        <>
-                          {msg.text || (msg.isPartial && (
-                            <div className="typing-indicator">
-                              <div className="typing-dots">
-                                <span className="typing-dot"></span>
-                                <span className="typing-dot"></span>
-                                <span className="typing-dot"></span>
+                      </div>
+                      <span className="badge-timestamp">
+                        <Clock size={10} />
+                        {formatTime(msg.timestamp)}
+                      </span>
+                    </div>
+
+                    <div className="message-bubble">
+                      <div 
+                        className={`message ${msg.sender} ${msg.isPartial ? 'partial' : ''} ${msg.isError ? 'error' : ''}`}
+                      >
+                        {msg.model && msg.sender === 'bot' && (
+                          <div className="model-badge-inside">
+                            <Cpu size={12} />
+                            <span>{msg.model}</span>
+                          </div>
+                        )}
+                        
+                        <div className="message-content">
+                          {editingMessageId === msg.id ? (
+                            <div className="edit-container">
+                              <div className="edit-textarea-container" data-replicated-value={editingText}>
+                                <textarea
+                                  ref={editTextareaRef}
+                                  value={editingText}
+                                  onChange={handleEditTextChange}
+                                  onKeyDown={(e) => handleEditTextareaKeyDown(e, msg.id)}
+                                  className="edit-textarea"
+                                  rows="1"
+                                />
+                              </div>
+                              <div className="edit-actions">
+                                <button
+                                  onClick={() => saveEditedMessage(msg.id)}
+                                  className="action-btn save-btn"
+                                  title="Save changes (Enter)"
+                                  disabled={isLoading || isRespondingToEdit.current}
+                                >
+                                  <Save size={16} />
+                                  <span>Save</span>
+                                </button>
+                                <button
+                                  onClick={cancelEditing}
+                                  className="action-btn cancel-btn"
+                                  title="Cancel (Esc)"
+                                >
+                                  <X size={16} />
+                                  <span>Cancel</span>
+                                </button>
                               </div>
                             </div>
-                          ))}
-                        </>
+                          ) : (
+                            <>
+                              {msg.text || (msg.isPartial && (
+                                <div className="typing-indicator">
+                                  <div className="typing-dots">
+                                    <span className="typing-dot"></span>
+                                    <span className="typing-dot"></span>
+                                    <span className="typing-dot"></span>
+                                  </div>
+                                </div>
+                              ))}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* Action buttons container below bubble */}
+                      {editingMessageId !== msg.id && !msg.isSystem && (
+                        <div className="message-actions-container">
+                          {msg.sender === 'user' && !msg.isPartial && !isLoading && (
+                            <button 
+                              onClick={() => startEditing(msg.id, msg.text)}
+                              className="action-btn edit-btn"
+                              title="Edit message"
+                              disabled={isLoading || editingMessageId || isRespondingToEdit.current}
+                            >
+                              <Edit2 size={16} />
+                              <span>Edit</span>
+                            </button>
+                          )}
+                          <button 
+                            onClick={() => copyMessage(msg.text)}
+                            className="action-btn copy-btn"
+                            title="Copy message"
+                            disabled={isLoading || editingMessageId || isRespondingToEdit.current}
+                          >
+                            <Copy size={16} />
+                            <span>Copy</span>
+                          </button>
+                          {index === messages.length - 1 && msg.sender === 'bot' && !msg.isPartial && (
+                            <button 
+                              onClick={regenerateLastMessage}
+                              className="action-btn regen-btn"
+                              title="Regenerate response (Ctrl+R)"
+                              disabled={isLoading || editingMessageId || isRespondingToEdit.current}
+                            >
+                              <RefreshCw size={16} />
+                              <span>Regenerate</span>
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
-                  </div>
-                  
-                  {/* Action buttons container below bubble */}
-                  {editingMessageId !== msg.id && (
-                    <div className="message-actions-container">
-                      {msg.sender === 'user' && !msg.isPartial && !isLoading && (
-                        <button 
-                          onClick={() => startEditing(msg.id, msg.text)}
-                          className="action-btn edit-btn"
-                          title="Edit message"
-                          disabled={isLoading || editingMessageId || isRespondingToEdit.current}
-                        >
-                          <Edit2 size={16} />
-                          <span>Edit</span>
-                        </button>
-                      )}
-                      <button 
-                        onClick={() => copyMessage(msg.text)}
-                        className="action-btn copy-btn"
-                        title="Copy message"
-                        disabled={isLoading || editingMessageId || isRespondingToEdit.current}
-                      >
-                        <Copy size={16} />
-                        <span>Copy</span>
-                      </button>
-                      {index === messages.length - 1 && msg.sender === 'bot' && !msg.isPartial && (
-                        <button 
-                          onClick={regenerateLastMessage}
-                          className="action-btn regen-btn"
-                          title="Regenerate response (Ctrl+R)"
-                          disabled={isLoading || editingMessageId || isRespondingToEdit.current}
-                        >
-                          <RefreshCw size={16} />
-                          <span>Regenerate</span>
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
+                  </>
+                )}
               </div>
             ))
           )}
@@ -1045,7 +1225,7 @@ function App() {
             <CustomDropdown
               options={modelOptions}
               value={selectedModel}
-              onChange={setSelectedModel}
+              onChange={handleModelChange}
               disabled={isLoading || ollamaStatus === 'error' || editingMessageId || isRespondingToEdit.current}
               placeholder="Select model..."
             />
@@ -1077,7 +1257,7 @@ function App() {
                   <span className="streaming-dot"></span>
                   <span className="streaming-dot"></span>
                 </div>
-                <span className="streaming-text">Streaming...</span>
+                <span className="streaming-text">Streaming with {selectedModel}...</span>
               </div>
             )}
             {editingMessageId && (
