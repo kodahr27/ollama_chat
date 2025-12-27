@@ -1,4 +1,4 @@
-/* App.css - Clean version with Lucide icons - UPDATED */
+/* App.css - Clean version with Lucide icons - UPDATED without refresh button */
 
 * {
   margin: 0;
@@ -30,6 +30,7 @@
   --warning-color: #f59e0b;
   --textarea-min-height: 36px;
   --textarea-max-height: 120px;
+  --mobile-dropdown-height: 44px;
 }
 
 body {
@@ -59,6 +60,7 @@ body {
   gap: 8px;
   max-width: 1600px;
   margin: 0 auto;
+  overflow: hidden;
 }
 
 /* Header */
@@ -73,6 +75,8 @@ body {
   border: 1px solid var(--border-color);
   flex-wrap: wrap;
   gap: 16px;
+  flex-shrink: 0;
+  z-index: 100;
 }
 
 .header-left {
@@ -189,8 +193,6 @@ body {
   justify-content: space-between;
   align-items: center;
   width: fit-content;
-  min-width: 70px;
-  max-width: 300px;
   padding: 8px 12px;
   background: var(--dropdown-bg);
   color: var(--text-primary);
@@ -245,10 +247,10 @@ body {
 
 .dropdown-menu {
   position: absolute;
-  top: 115%;
-  right: 0;
-  min-width: 100%;
-  width: max-content;
+  bottom: 115%;
+  left: 0;
+  right: auto;
+  width: fit-content;
   background: var(--dropdown-bg);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm) var(--radius-sm) var(--radius-sm) var(--radius-sm);
@@ -256,7 +258,41 @@ body {
   max-height: 300px;
   overflow-y: auto;
   z-index: 1000;
+  margin-bottom: -2px;
+}
+
+/* For desktop dropdown only, position differently */
+.desktop-only .dropdown-menu {
+  top: 115%;
+  bottom: auto;
   margin-top: -2px;
+  margin-bottom: 0;
+}
+
+/* No models state in dropdown */
+.dropdown-no-models {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.no-models-icon {
+  color: var(--warning-color);
+}
+
+.no-models-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.no-models-hint {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
 }
 
 .dropdown-item {
@@ -367,21 +403,30 @@ body {
   border-color: var(--error-color);
 }
 
+/* Chat Window Container - NEW */
+.chat-window-container {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-light);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow);
+}
+
 /* Chat Window */
 .chat-window {
   flex: 1;
   position: relative;
   overflow-y: auto;
-  background: var(--bg-light);
-  border-radius: var(--radius);
-  padding: 24px 60px; /* More horizontal padding for desktop */
+  padding: 24px 60px;
   display: flex;
   flex-direction: column;
   gap: 32px;
-  border: 1px solid var(--border-color);
-  box-shadow: var(--shadow);
   min-height: 0;
-  margin: 0 auto;
   width: 100%;
 }
 
@@ -406,18 +451,18 @@ body {
 /* Message containers for desktop */
 @media (min-width: 769px) {
   .message-container.user {
-    padding-right: 40px; /* Add right padding for user messages */
+    padding-right: 40px;
   }
   
   .message-container.bot {
-    padding-left: 40px; /* Add left padding for bot messages */
+    padding-left: 40px;
   }
 }
 
 /* For very large screens */
 @media (min-width: 1400px) {
   .chat-window {
-    padding: 24px 80px; /* Even more padding on very large screens */
+    padding: 24px 80px;
   }
   
   .message-container.user {
@@ -459,6 +504,46 @@ body {
 .empty-subtitle {
   color: var(--text-secondary);
   margin-bottom: 24px;
+}
+
+/* Connection error and models warning in empty state */
+.connection-error,
+.models-warning {
+  background: var(--bg-lighter);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  margin: 16px 0;
+  text-align: center;
+  max-width: 400px;
+  width: 100%;
+}
+
+.connection-error {
+  border-color: var(--error-color);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.models-warning {
+  border-color: var(--warning-color);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.connection-error svg,
+.models-warning svg {
+  margin-bottom: 8px;
+  color: var(--error-color);
+}
+
+.models-warning svg {
+  color: var(--warning-color);
+}
+
+.error-hint,
+.warning-hint {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-top: 4px;
 }
 
 .hints {
@@ -903,38 +988,42 @@ kbd {
   box-shadow: var(--shadow);
   min-width: 0;
   flex-wrap: nowrap;
+  flex-shrink: 0;
+  z-index: 100;
 }
 
-/* Mobile Model Selector - UPDATED */
+/* Mobile Model Selector - FIXED POSITIONING */
 .mobile-model-selector {
   display: none;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  margin-bottom: 0;
-  position: relative;
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
   z-index: 200;
+  width: auto;
+  min-width: 120px;
+  max-width: 180px;
 }
 
 .mobile-dropdown-wrapper {
-  flex: 1;
   width: 100%;
 }
 
-/* Fix dropdown positioning for mobile - CENTERED SOLUTION */
+/* Mobile dropdown expands upwards */
 .mobile-dropdown-wrapper .custom-dropdown {
-  position: static !important;
   width: 100%;
 }
 
 .mobile-dropdown-wrapper .dropdown-toggle {
-  width: 100%;
   justify-content: space-between;
-  max-width: 100%;
-  box-sizing: border-box;
+  background: var(--dropdown-bg);
+  border: 1px solid var(--border-color);
+  min-height: var(--mobile-dropdown-height);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  padding: 8px 10px;
 }
 
-/* Backdrop for mobile dropdown - IMPORTANT */
+/* Backdrop for mobile dropdown */
 .dropdown-backdrop {
   position: fixed;
   top: 0;
@@ -950,35 +1039,21 @@ kbd {
   display: block;
 }
 
-/* Override dropdown menu position for mobile - CENTERED */
+/* Mobile dropdown menu positioned above the toggle */
 .mobile-dropdown-wrapper .dropdown-menu {
-  position: fixed !important;
-  top: 50% !important;
-  left: 50% !important;
+  position: absolute !important;
+  bottom: calc(100% + 10px) !important;
+  left: auto !important;
   right: auto !important;
-  bottom: auto !important;
-  transform: translate(-50%, -50%) !important;
-  width: 85% !important;
-  max-width: 300px !important;
-  max-height: 60vh !important;
+  top: auto !important;
+  transform: none !important;
+  max-height: 50vh !important;
   margin: 0 !important;
   z-index: 1001 !important;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
-  border: 2px solid var(--primary-color);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--primary-color);
   background: var(--dropdown-bg);
-  border-radius: var(--radius);
-}
-
-/* Make dropdown items more touch-friendly on mobile */
-.mobile-dropdown-wrapper .dropdown-item {
-  padding: 14px 16px;
-  font-size: 0.95rem;
-  min-height: 48px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.mobile-dropdown-wrapper .dropdown-item:last-child {
-  border-bottom: none;
+  border-radius: var(--radius-sm);
 }
 
 /* Auto-Growing Textarea Container - FIXED HEIGHT */
@@ -1112,6 +1187,19 @@ kbd {
   border-radius: 6px;
   border: 1px solid rgba(245, 158, 11, 0.2);
   min-width: 0;
+}
+
+/* No models warning in input area */
+.no-models-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--warning-color);
+  padding: 4px 8px;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: 6px;
+  border: 1px solid rgba(245, 158, 11, 0.2);
 }
 
 .streaming-dots {
@@ -1307,62 +1395,47 @@ kbd {
     display: none !important;
   }
   
-  /* Make clear button compact on mobile */
-  .icon-btn.clear-btn {
+  /* Make buttons compact on mobile */
+  .icon-btn {
     padding: 6px 10px;
     font-size: 0.8rem;
     min-width: 40px;
     height: 34px;
   }
   
-  .icon-btn.clear-btn span {
+  .icon-btn span {
     display: none;
   }
   
-  /* MOBILE INPUT AREA LAYOUT - UPDATED */
-  .input-area {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-    padding: 8px;
-    min-height: auto;
-  }
-  
+  /* Show mobile model selector */
   .mobile-model-selector {
     display: flex;
-    order: 1;
-    width: 100%;
-    margin-bottom: 0;
+  }
+  
+  /* Chat window adjustments for mobile */
+  .chat-window-container {
+    position: relative;
+  }
+  
+  .chat-window {
+    padding: 16px 12px 80px 12px; /* Add bottom padding for dropdown */
+  }
+  
+  /* Mobile dropdown positioning */
+  .mobile-model-selector {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    z-index: 200;
   }
   
   .mobile-dropdown-wrapper .dropdown-toggle {
     background: var(--bg-lighter);
     border: 1px solid var(--border-color);
-    font-size: 0.85rem;
-    height: 36px;
-  }
-  
-  .message-input-container {
-    order: 2;
-    width: 100%;
-    margin: 0;
-  }
-  
-  .input-controls {
-    order: 3;
-    width: 100%;
-    justify-content: space-between;
-    margin-left: 0;
-    min-width: 0;
-  }
-  
-  .input-info {
-    display: none;
-  }
-  
-  /* Adjust chat window for mobile */
-  .chat-window {
-    padding: 16px;
+    font-size: 0.8rem;
+    height: var(--mobile-dropdown-height);
+    padding: 8px 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   }
   
   /* Remove desktop padding for messages on mobile */
@@ -1425,24 +1498,37 @@ kbd {
     display: none;
   }
   
-  /* Streaming status adjustments */
-  .streaming-status span {
+  /* MOBILE INPUT AREA LAYOUT */
+  .input-area {
+    flex-direction: row;
+    align-items: center;
+    padding: 8px;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  
+  .message-input-container {
+    order: 1;
+  }
+  
+  .input-controls {
+    order: 2;
+    width: auto;
+    justify-content: flex-end;
+    margin-left: 0;
+  }
+  
+  .input-info {
     display: none;
   }
   
-  .editing-status span {
-    display: none;
-  }
-  
+  /* Status text adjustments */
+  .streaming-status span,
+  .editing-status span,
+  .no-models-warning span,
   .send-btn span,
   .stop-btn span {
     display: none;
-  }
-  
-  .streaming-status,
-  .editing-status {
-    padding: 4px 6px;
-    min-width: 0;
   }
   
   .send-btn,
@@ -1485,6 +1571,11 @@ kbd {
   .desktop-only {
     display: none !important;
   }
+  
+  /* Adjust mobile dropdown for mobile screens */
+  .mobile-dropdown-wrapper .dropdown-menu {
+    bottom: calc(100% + 8px) !important;
+  }
 }
 
 /* For very small screens */
@@ -1514,9 +1605,16 @@ kbd {
   }
   
   /* Adjust mobile dropdown for very small screens */
-  .mobile-dropdown-wrapper .dropdown-menu {
-    width: 90% !important;
-    max-width: 280px !important;
+  .mobile-model-selector {
+    bottom: 12px;
+    left: 12px;
+    max-width: 160px;
+  }
+  
+  .mobile-dropdown-wrapper .dropdown-toggle {
+    font-size: 0.75rem;
+    padding: 6px 10px;
+    min-height: 40px;
   }
   
   .message-container {
@@ -1590,6 +1688,13 @@ kbd {
   .message-input-container::after {
     padding: 5px 8px;
   }
+  
+  /* Adjust connection error/warning for small screens */
+  .connection-error,
+  .models-warning {
+    padding: 12px;
+    margin: 12px 0;
+  }
 }
 
 /* Desktop Layout Styles */
@@ -1632,4 +1737,9 @@ kbd {
 
 .desktop-only {
   display: flex;
+}
+
+/* Prevent scrolling when dropdown is open on mobile */
+body.dropdown-open {
+  overflow: hidden;
 }

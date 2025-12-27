@@ -31,7 +31,7 @@ import {
 
 const OLLAMA_API_URL = 'http://localhost:11434/api';
 
-// Custom Dropdown Component - UPDATED
+// Custom Dropdown Component - FIXED for model display
 const CustomDropdown = ({ options, value, onChange, disabled, placeholder = "Select..." }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
@@ -66,15 +66,13 @@ const CustomDropdown = ({ options, value, onChange, disabled, placeholder = "Sel
     setIsOpen(false);
   };
 
-  // Updated keyboard handler - only handles Escape
+  // Updated keyboard handler
   const handleKeyDown = (e) => {
-    // Only handle Escape key when dropdown is open
     if (isOpen && e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
       setIsOpen(false);
     }
-    // Don't stop propagation for other keys
   };
 
   const selectedOption = options.find(opt => opt.value === value);
@@ -113,27 +111,39 @@ const CustomDropdown = ({ options, value, onChange, disabled, placeholder = "Sel
           <div className="dropdown-backdrop" onClick={() => setIsOpen(false)} />
           
           <div className="dropdown-menu">
-            {options.map((option) => (
-              <button
-                key={option.value}
-                className={`dropdown-item ${value === option.value ? 'selected' : ''}`}
-                onClick={() => handleSelect(option.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleSelect(option.value);
-                  }
-                }}
-                type="button"
-              >
-                <div className="dropdown-item-content">
-                  <Code size={14} />
-                  <span className="dropdown-item-label">{option.label}</span>
+            {options.length === 0 ? (
+              <div className="dropdown-no-models">
+                <div className="no-models-icon">
+                  <AlertCircle size={16} />
                 </div>
-                {value === option.value && <Check size={14} className="checkmark" />}
-              </button>
-            ))}
+                <div className="no-models-text">
+                  <p>No models available</p>
+                  <p className="no-models-hint">Check if Ollama is running</p>
+                </div>
+              </div>
+            ) : (
+              options.map((option) => (
+                <button
+                  key={option.value}
+                  className={`dropdown-item ${value === option.value ? 'selected' : ''}`}
+                  onClick={() => handleSelect(option.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleSelect(option.value);
+                    }
+                  }}
+                  type="button"
+                >
+                  <div className="dropdown-item-content">
+                    <Code size={14} />
+                    <span className="dropdown-item-label">{option.label}</span>
+                  </div>
+                  {value === option.value && <Check size={14} className="checkmark" />}
+                </button>
+              ))
+            )}
           </div>
         </>
       )}
@@ -171,11 +181,12 @@ function App() {
     const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
     return saved ? JSON.parse(saved).model || 'llama3.1' : 'llama3.1';
   });
-  const [availableModels, setAvailableModels] = useState(['llama3.1']);
+  const [availableModels, setAvailableModels] = useState([]); // Changed from ['llama3.1'] to []
   const [ollamaStatus, setOllamaStatus] = useState('checking');
   const [sessionId] = useState(generateSessionId());
   const [isStreaming, setIsStreaming] = useState(false);
   const [abortController, setAbortController] = useState(null);
+  const [modelsError, setModelsError] = useState(null); // Add error state
   
   // Add initialization state
   const [isInitialized, setIsInitialized] = useState(false);
@@ -191,7 +202,8 @@ function App() {
   const editTextareaRef = useRef(null);
   const isRespondingToEdit = useRef(false);
   const lastProcessedEdit = useRef(null);
-  const dropdownRef = useRef(null); // Add ref for dropdown
+  const desktopDropdownRef = useRef(null);
+  const mobileDropdownRef = useRef(null);
 
   // Convert availableModels to dropdown format
   const modelOptions = availableModels.map(model => ({
@@ -246,7 +258,7 @@ function App() {
     }
   }, [input]);
 
-  // Global keyboard shortcuts - FIXED VERSION
+  // Global keyboard shortcuts
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
       // Always allow browser shortcuts
@@ -263,7 +275,6 @@ function App() {
         (e.key === 'j' && (e.ctrlKey || e.metaKey) && e.shiftKey) ||
         (e.key === 'c' && (e.ctrlKey || e.metaKey) && e.shiftKey);
 
-      // Don't interfere with browser shortcuts
       if (isBrowserShortcut) return;
 
       // Check if user is in a form element
@@ -274,11 +285,8 @@ function App() {
         activeElement.tagName === 'SELECT' ||
         activeElement.isContentEditable;
 
-      // For form elements, only handle Ctrl+ shortcuts (not single keys)
       if (isInFormElement) {
-        // Allow Ctrl+ shortcuts even when typing
         if (e.ctrlKey || e.metaKey) {
-          // Handle shortcuts that should work even when typing
           switch (true) {
             case e.key === '/' && (e.ctrlKey || e.metaKey):
               e.preventDefault();
@@ -300,8 +308,6 @@ function App() {
               break;
           }
         }
-        
-        // Don't handle other keys when in form elements
         return;
       }
 
@@ -344,14 +350,15 @@ function App() {
   // Check Ollama health and fetch models
   useEffect(() => {
     const initializeApp = async () => {
-      await checkOllamaHealth();
-      await fetchAvailableModels();
-      setIsInitialized(true); // Mark as initialized
+      const isHealthy = await checkOllamaHealth();
+      if (isHealthy) {
+        await fetchAvailableModels();
+      }
+      setIsInitialized(true);
     };
     
     initializeApp();
     
-    // Set up periodic health check (only after initialization)
     const interval = setInterval(() => {
       if (isInitialized && !isStreaming && !isLoading) {
         checkOllamaHealth();
@@ -362,13 +369,11 @@ function App() {
   }, []);
 
   const checkOllamaHealth = async () => {
-    // Skip health check if we're streaming to avoid timeout conflicts
     if (isStreaming || isLoading) {
-      return;
+      return false;
     }
     
     try {
-      // Create a timeout promise instead of using AbortSignal.timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000);
       
@@ -380,35 +385,53 @@ function App() {
       
       if (response.ok) {
         setOllamaStatus('connected');
+        return true;
       } else {
         setOllamaStatus('error');
+        setModelsError('Failed to fetch models from Ollama');
+        return false;
       }
     } catch (error) {
-      // Don't update status or log errors during streaming
       if (!isStreaming && !isLoading) {
         setOllamaStatus('error');
+        setModelsError('Cannot connect to Ollama. Make sure it is running on http://localhost:11434');
         console.error('Ollama health check failed:', error);
       }
+      return false;
     }
   };
 
   const fetchAvailableModels = async () => {
     try {
+      console.log('Fetching models from Ollama...');
       const response = await fetch(`${OLLAMA_API_URL}/tags`);
-      if (response.ok) {
-        const data = await response.json();
-        if (data.models && data.models.length > 0) {
-          const modelNames = data.models.map(m => m.name);
-          setAvailableModels(modelNames);
-          
-          // If selected model is not available, switch to first available
-          if (!modelNames.includes(selectedModel) && modelNames.length > 0) {
-            setSelectedModel(modelNames[0]);
-          }
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+      }
+      
+      const data = await response.json();
+      console.log('Ollama models response:', data);
+      
+      if (data.models && data.models.length > 0) {
+        const modelNames = data.models.map(m => m.name);
+        console.log('Available models:', modelNames);
+        setAvailableModels(modelNames);
+        setModelsError(null);
+        
+        // If selected model is not available, switch to first available
+        if (!modelNames.includes(selectedModel) && modelNames.length > 0) {
+          setSelectedModel(modelNames[0]);
+          console.log('Switched to model:', modelNames[0]);
         }
+      } else {
+        setAvailableModels([]);
+        setModelsError('No models found in Ollama. Pull a model first using "ollama pull <model-name>"');
       }
     } catch (error) {
       console.error('Failed to fetch Ollama models:', error);
+      setAvailableModels([]);
+      setModelsError(`Failed to fetch models: ${error.message}`);
     }
   };
 
@@ -419,7 +442,6 @@ function App() {
       cancelEditing();
       isRespondingToEdit.current = false;
       lastProcessedEdit.current = null;
-      // Focus input after clearing
       setTimeout(() => {
         textareaRef.current?.focus();
       }, 0);
@@ -434,7 +456,6 @@ function App() {
       setIsStreaming(false);
       isRespondingToEdit.current = false;
       
-      // Add interrupted message if we were streaming
       if (isStreaming && streamBuffer.current) {
         setMessages(prev => {
           const newMessages = [...prev];
@@ -449,7 +470,6 @@ function App() {
         });
       }
       
-      // Focus input after stopping
       setTimeout(() => {
         textareaRef.current?.focus();
       }, 0);
@@ -473,7 +493,6 @@ function App() {
       return;
     }
 
-    // Check if this is the same edit we just processed
     const editKey = `${messageId}-${editingText}`;
     if (lastProcessedEdit.current === editKey) {
       cancelEditing();
@@ -483,7 +502,6 @@ function App() {
     lastProcessedEdit.current = editKey;
     isRespondingToEdit.current = true;
 
-    // Find the index of the message being edited
     const editedMessageIndex = messages.findIndex(msg => msg.id === messageId);
     
     if (editedMessageIndex === -1) {
@@ -494,7 +512,6 @@ function App() {
 
     const editedMessage = messages[editedMessageIndex];
     
-    // Update the message with the new text
     setMessages(prev => {
       const newMessages = prev.map(msg => 
         msg.id === messageId 
@@ -507,28 +524,22 @@ function App() {
 
     cancelEditing();
 
-    // Handle regeneration based on message type and position
     if (editedMessage.sender === 'user') {
       if (editedMessageIndex === messages.length - 1) {
-        // Last user message - just regenerate the bot's response
         setTimeout(async () => {
-          // Remove existing bot response if it exists
           if (messages[editedMessageIndex + 1]?.sender === 'bot') {
             setMessages(prev => prev.slice(0, editedMessageIndex + 1));
           }
           
-          // Wait for state update, then regenerate
           setTimeout(async () => {
             await sendStreamingResponseForEdit(editingText, true);
             isRespondingToEdit.current = false;
           }, 150);
         }, 50);
       } else {
-        // Not the last message - remove all subsequent messages and regenerate
         setTimeout(() => {
           setMessages(prev => prev.slice(0, editedMessageIndex + 1));
           
-          // Wait for state update, then regenerate
           setTimeout(async () => {
             await sendStreamingResponseForEdit(editingText, true);
             isRespondingToEdit.current = false;
@@ -536,13 +547,18 @@ function App() {
         }, 50);
       }
     } else {
-      // Bot message - just save the edit, no regeneration needed
       isRespondingToEdit.current = false;
     }
   };
 
   const sendMessage = async () => {
     if (!input.trim() || isLoading || isRespondingToEdit.current) return;
+
+    // Check if we have a valid model selected
+    if (!selectedModel || availableModels.length === 0) {
+      alert('No model selected or available. Please check if Ollama is running and has models.');
+      return;
+    }
 
     const userMessage = {
       id: Date.now(),
@@ -552,12 +568,10 @@ function App() {
       isPartial: false
     };
 
-    // Add user message immediately
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
     
-    // Focus textarea
     textareaRef.current?.focus();
 
     await sendStreamingResponse(input, false);
@@ -566,18 +580,29 @@ function App() {
   const sendStreamingResponse = async (userInput, isEdit = false) => {
     if (!isInitialized || (isLoading && !isEdit)) return;
     
+    // Check if we have a valid model
+    if (!selectedModel || availableModels.length === 0) {
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        sender: 'bot',
+        text: 'Error: No model selected or available. Please select a model from the dropdown.',
+        timestamp: new Date(),
+        isPartial: false,
+        isError: true
+      }]);
+      setIsLoading(false);
+      return;
+    }
+    
     setIsStreaming(true);
     setIsLoading(true);
     streamBuffer.current = '';
     
-    // Remove any existing partial bot messages
     setMessages(prev => {
       const newMessages = [...prev];
-      // Remove any partial bot messages
       return newMessages.filter(msg => !(msg.sender === 'bot' && msg.isPartial));
     });
 
-    // Add placeholder bot message
     const botMessageId = Date.now() + 1;
     setMessages(prev => [...prev, {
       id: botMessageId,
@@ -591,13 +616,10 @@ function App() {
       const controller = new AbortController();
       setAbortController(controller);
 
-      // Get the current complete messages (excluding the placeholder we just added)
       const currentMessages = messages.filter(msg => !msg.isPartial);
       
-      // Prepare messages array for /chat API
       const chatMessages = [];
       
-      // Add conversation history from current messages
       currentMessages.forEach(msg => {
         if (msg.sender === 'user') {
           chatMessages.push({
@@ -612,7 +634,6 @@ function App() {
         }
       });
       
-      // Add the current user message (the one we're responding to)
       chatMessages.push({
         role: 'user',
         content: userInput
@@ -660,11 +681,9 @@ function App() {
           try {
             const parsed = JSON.parse(line);
             
-            // /chat API streams message chunks with 'content' field
             if (parsed.message?.content) {
               streamBuffer.current += parsed.message.content;
               
-              // Update the last message with streaming content
               setMessages(prev => {
                 const newMessages = [...prev];
                 const lastMessage = newMessages[newMessages.length - 1];
@@ -677,9 +696,7 @@ function App() {
               });
             }
             
-            // Check if streaming is done
             if (parsed.done === true) {
-              // Mark as complete
               setMessages(prev => {
                 const newMessages = [...prev];
                 const lastMessage = newMessages[newMessages.length - 1];
@@ -726,51 +743,42 @@ function App() {
         isRespondingToEdit.current = false;
       }
       
-      // Focus input after completion
       setTimeout(() => {
         textareaRef.current?.focus();
       }, 0);
     }
   };
 
-  // Separate function for edit responses to prevent duplicate calls
   const sendStreamingResponseForEdit = async (userInput, isEdit = true) => {
     await sendStreamingResponse(userInput, isEdit);
   };
 
   const regenerateLastMessage = () => {
-    // Prevent regeneration during initialization or if not ready
     if (!isInitialized || messages.length === 0 || isLoading || isRespondingToEdit.current) return;
     
-    // Find the last user message
     const lastUserMessageIndex = messages.map((msg, idx) => 
       msg.sender === 'user' ? idx : -1
     ).filter(idx => idx !== -1).pop();
     
     if (lastUserMessageIndex !== undefined) {
       const lastUserMessage = messages[lastUserMessageIndex];
-      // Remove the bot response if it exists
       const nextMessage = messages[lastUserMessageIndex + 1];
       if (nextMessage && nextMessage.sender === 'bot') {
         setMessages(prev => prev.slice(0, lastUserMessageIndex + 1));
       }
       
-      // Wait for state update, then regenerate
       setTimeout(async () => {
         await sendStreamingResponse(lastUserMessage.text, false);
       }, 100);
     }
   };
 
-  // Updated textarea keydown handler
   const handleTextareaKeyDown = (e) => {
-    // Only handle Enter in textarea
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
-      e.stopPropagation(); // Prevent event from bubbling up
+      e.stopPropagation();
       sendMessage();
     }
-    // Let all other key combinations pass through
   };
 
   const handleEditTextareaKeyDown = (e, messageId) => {
@@ -794,7 +802,6 @@ function App() {
   const copyMessage = async (text) => {
     try {
       await navigator.clipboard.writeText(text);
-      // Optional: Show toast notification
       console.log('Message copied to clipboard');
     } catch (error) {
       console.error('Failed to copy:', error);
@@ -833,7 +840,7 @@ function App() {
         
         <div className="header-right">
           {/* Desktop Model Dropdown */}
-          <div className="custom-dropdown-wrapper desktop-only" ref={dropdownRef}>
+          <div className="custom-dropdown-wrapper desktop-only" ref={desktopDropdownRef}>
             <CustomDropdown
               options={modelOptions}
               value={selectedModel}
@@ -855,171 +862,186 @@ function App() {
         </div>
       </div>
 
-      {/* Chat Window */}
-      <div className="chat-window">
-        {messages.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-icon">
-              <MessageSquare size={64} />
-            </div>
-            <h2>Start a conversation</h2>
-            <p className="empty-subtitle">Send a message to begin chatting with {selectedModel}</p>
-            <div className="hints">
-              <div className="hint-item">
-                <Keyboard size={16} />
-                <span><kbd>Enter</kbd> to send message</span>
+      {/* Chat Window with Mobile Dropdown Container */}
+      <div className="chat-window-container">
+        <div className="chat-window">
+          {messages.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">
+                <MessageSquare size={64} />
               </div>
-              <div className="hint-item">
-                <Keyboard size={16} />
-                <span><kbd>Shift</kbd> + <kbd>Enter</kbd> for new line</span>
-              </div>
-              <div className="hint-item">
-                <Keyboard size={16} />
-                <span><kbd>Ctrl</kbd> + <kbd>/</kbd> to clear conversation</span>
-              </div>
-              <div className="hint-item">
-                <Keyboard size={16} />
-                <span><kbd>Esc</kbd> to stop generation</span>
-              </div>
-              <div className="hint-item">
-                <Keyboard size={16} />
-                <span><kbd>Ctrl</kbd> + <kbd>R</kbd> to regenerate</span>
-              </div>
-              <div className="hint-item">
-                <Keyboard size={16} />
-                <span><kbd>Ctrl</kbd> + <kbd>K</kbd> to clear input</span>
-              </div>
-            </div>
-          </div>
-        ) : (
-          messages.map((msg, index) => (
-            <div 
-              key={msg.id || index} 
-              className={`message-container ${msg.sender} ${editingMessageId === msg.id ? 'editing' : ''}`}
-            >
-              {/* Sender Badge on the OUTSIDE */}
-              <div className="sender-badge-container">
-                <div className="sender-badge-outside">
-                  <div className="sender-icon">
-                    {msg.sender === 'user' ? <User size={18} /> : <Bot size={18} />}
-                  </div>
+              <h2>Start a conversation</h2>
+              <p className="empty-subtitle">Send a message to begin chatting with {selectedModel}</p>
+              
+              {/* Show connection status */}
+              {ollamaStatus === 'error' && (
+                <div className="connection-error">
+                  <AlertCircle size={24} />
+                  <p>Cannot connect to Ollama</p>
+                  <p className="error-hint">Make sure Ollama is running on http://localhost:11434</p>
                 </div>
-                <span className="badge-timestamp">
-                  <Clock size={10} />
-                  {formatTime(msg.timestamp)}
-                </span>
+              )}
+              
+              {availableModels.length === 0 && ollamaStatus === 'connected' && (
+                <div className="models-warning">
+                  <AlertCircle size={24} />
+                  <p>No models available</p>
+                  <p className="warning-hint">Pull a model using: ollama pull &lt;model-name&gt;</p>
+                </div>
+              )}
+              
+              <div className="hints">
+                <div className="hint-item">
+                  <Keyboard size={16} />
+                  <span><kbd>Enter</kbd> to send message</span>
+                </div>
+                <div className="hint-item">
+                  <Keyboard size={16} />
+                  <span><kbd>Shift</kbd> + <kbd>Enter</kbd> for new line</span>
+                </div>
+                <div className="hint-item">
+                  <Keyboard size={16} />
+                  <span><kbd>Ctrl</kbd> + <kbd>/</kbd> to clear conversation</span>
+                </div>
+                <div className="hint-item">
+                  <Keyboard size={16} />
+                  <span><kbd>Esc</kbd> to stop generation</span>
+                </div>
+                <div className="hint-item">
+                  <Keyboard size={16} />
+                  <span><kbd>Ctrl</kbd> + <kbd>R</kbd> to regenerate</span>
+                </div>
+                <div className="hint-item">
+                  <Keyboard size={16} />
+                  <span><kbd>Ctrl</kbd> + <kbd>K</kbd> to clear input</span>
+                </div>
               </div>
+            </div>
+          ) : (
+            messages.map((msg, index) => (
+              <div 
+                key={msg.id || index} 
+                className={`message-container ${msg.sender} ${editingMessageId === msg.id ? 'editing' : ''}`}
+              >
+                <div className="sender-badge-container">
+                  <div className="sender-badge-outside">
+                    <div className="sender-icon">
+                      {msg.sender === 'user' ? <User size={18} /> : <Bot size={18} />}
+                    </div>
+                  </div>
+                  <span className="badge-timestamp">
+                    <Clock size={10} />
+                    {formatTime(msg.timestamp)}
+                  </span>
+                </div>
 
-              {/* Message Bubble and Actions */}
-              <div className="message-bubble">
-                <div 
-                  className={`message ${msg.sender} ${msg.isPartial ? 'partial' : ''} ${msg.isError ? 'error' : ''}`}
-                >
-                  {msg.model && msg.sender === 'bot' && (
-                    <div className="model-badge-inside">
-                      <Cpu size={12} />
-                      <span>{selectedModel}</span>
+                <div className="message-bubble">
+                  <div 
+                    className={`message ${msg.sender} ${msg.isPartial ? 'partial' : ''} ${msg.isError ? 'error' : ''}`}
+                  >
+                    {msg.model && msg.sender === 'bot' && (
+                      <div className="model-badge-inside">
+                        <Cpu size={12} />
+                        <span>{selectedModel}</span>
+                      </div>
+                    )}
+                    
+                    <div className="message-content">
+                      {editingMessageId === msg.id ? (
+                        <div className="edit-container">
+                          <div className="edit-textarea-container" data-replicated-value={editingText}>
+                            <textarea
+                              ref={editTextareaRef}
+                              value={editingText}
+                              onChange={handleEditTextChange}
+                              onKeyDown={(e) => handleEditTextareaKeyDown(e, msg.id)}
+                              className="edit-textarea"
+                              rows="1"
+                            />
+                          </div>
+                          <div className="edit-actions">
+                            <button
+                              onClick={() => saveEditedMessage(msg.id)}
+                              className="action-btn save-btn"
+                              title="Save changes (Enter)"
+                              disabled={isLoading || isRespondingToEdit.current}
+                            >
+                              <Save size={16} />
+                              <span>Save</span>
+                            </button>
+                            <button
+                              onClick={cancelEditing}
+                              className="action-btn cancel-btn"
+                              title="Cancel (Esc)"
+                            >
+                              <X size={16} />
+                              <span>Cancel</span>
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          {msg.text || (msg.isPartial && (
+                            <div className="typing-indicator">
+                              <div className="typing-dots">
+                                <span className="typing-dot"></span>
+                                <span className="typing-dot"></span>
+                                <span className="typing-dot"></span>
+                              </div>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Action buttons container below bubble */}
+                  {editingMessageId !== msg.id && (
+                    <div className="message-actions-container">
+                      {msg.sender === 'user' && !msg.isPartial && !isLoading && (
+                        <button 
+                          onClick={() => startEditing(msg.id, msg.text)}
+                          className="action-btn edit-btn"
+                          title="Edit message"
+                          disabled={isLoading || editingMessageId || isRespondingToEdit.current}
+                        >
+                          <Edit2 size={16} />
+                          <span>Edit</span>
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => copyMessage(msg.text)}
+                        className="action-btn copy-btn"
+                        title="Copy message"
+                        disabled={isLoading || editingMessageId || isRespondingToEdit.current}
+                      >
+                        <Copy size={16} />
+                        <span>Copy</span>
+                      </button>
+                      {index === messages.length - 1 && msg.sender === 'bot' && !msg.isPartial && (
+                        <button 
+                          onClick={regenerateLastMessage}
+                          className="action-btn regen-btn"
+                          title="Regenerate response (Ctrl+R)"
+                          disabled={isLoading || editingMessageId || isRespondingToEdit.current}
+                        >
+                          <RefreshCw size={16} />
+                          <span>Regenerate</span>
+                        </button>
+                      )}
                     </div>
                   )}
-                  
-                  <div className="message-content">
-                    {editingMessageId === msg.id ? (
-                      <div className="edit-container">
-                        <div className="edit-textarea-container" data-replicated-value={editingText}>
-                          <textarea
-                            ref={editTextareaRef}
-                            value={editingText}
-                            onChange={handleEditTextChange}
-                            onKeyDown={(e) => handleEditTextareaKeyDown(e, msg.id)}
-                            className="edit-textarea"
-                            rows="1"
-                          />
-                        </div>
-                        <div className="edit-actions">
-                          <button
-                            onClick={() => saveEditedMessage(msg.id)}
-                            className="action-btn save-btn"
-                            title="Save changes (Enter)"
-                            disabled={isLoading || isRespondingToEdit.current}
-                          >
-                            <Save size={16} />
-                            <span>Save</span>
-                          </button>
-                          <button
-                            onClick={cancelEditing}
-                            className="action-btn cancel-btn"
-                            title="Cancel (Esc)"
-                          >
-                            <X size={16} />
-                            <span>Cancel</span>
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        {msg.text || (msg.isPartial && (
-                          <div className="typing-indicator">
-                            <div className="typing-dots">
-                              <span className="typing-dot"></span>
-                              <span className="typing-dot"></span>
-                              <span className="typing-dot"></span>
-                            </div>
-                          </div>
-                        ))}
-                      </>
-                    )}
-                  </div>
                 </div>
-                
-                {/* Action buttons container below bubble */}
-                {editingMessageId !== msg.id && (
-                  <div className="message-actions-container">
-                    {msg.sender === 'user' && !msg.isPartial && !isLoading && (
-                      <button 
-                        onClick={() => startEditing(msg.id, msg.text)}
-                        className="action-btn edit-btn"
-                        title="Edit message"
-                        disabled={isLoading || editingMessageId || isRespondingToEdit.current}
-                      >
-                        <Edit2 size={16} />
-                        <span>Edit</span>
-                      </button>
-                    )}
-                    <button 
-                      onClick={() => copyMessage(msg.text)}
-                      className="action-btn copy-btn"
-                      title="Copy message"
-                      disabled={isLoading || editingMessageId || isRespondingToEdit.current}
-                    >
-                      <Copy size={16} />
-                      <span>Copy</span>
-                    </button>
-                    {index === messages.length - 1 && msg.sender === 'bot' && !msg.isPartial && (
-                      <button 
-                        onClick={regenerateLastMessage}
-                        className="action-btn regen-btn"
-                        title="Regenerate response (Ctrl+R)"
-                        disabled={isLoading || editingMessageId || isRespondingToEdit.current}
-                      >
-                        <RefreshCw size={16} />
-                        <span>Regenerate</span>
-                      </button>
-                    )}
-                  </div>
-                )}
               </div>
-            </div>
-          ))
-        )}
+            ))
+          )}
+          
+          <div ref={messagesEndRef} />
+        </div>
         
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input Area */}
-      <div className="input-area">
-        {/* Mobile Model Selector - only visible on mobile */}
+        {/* Mobile Model Selector */}
         <div className="mobile-model-selector mobile-only">
-          <div className="custom-dropdown-wrapper mobile-dropdown-wrapper" ref={dropdownRef}>
+          <div className="mobile-dropdown-wrapper" ref={mobileDropdownRef}>
             <CustomDropdown
               options={modelOptions}
               value={selectedModel}
@@ -1029,7 +1051,10 @@ function App() {
             />
           </div>
         </div>
-        
+      </div>
+
+      {/* Input Area */}
+      <div className="input-area">
         <div className="message-input-container" data-replicated-value={input}>
           <textarea
             ref={textareaRef}
@@ -1037,7 +1062,7 @@ function App() {
             onChange={handleInputChange}
             onKeyDown={handleTextareaKeyDown}
             placeholder={isLoading ? `${selectedModel} is thinking...` : `Message ${selectedModel}...`}
-            disabled={isLoading || ollamaStatus === 'error' || editingMessageId || isRespondingToEdit.current}
+            disabled={isLoading || ollamaStatus === 'error' || editingMessageId || isRespondingToEdit.current || availableModels.length === 0}
             className="message-input"
             rows="1"
           />
@@ -1067,6 +1092,12 @@ function App() {
                 <span className="editing-text">Regenerating...</span>
               </div>
             )}
+            {availableModels.length === 0 && (
+              <div className="no-models-warning mobile-hide-text">
+                <AlertCircle size={14} />
+                <span className="warning-text">No models</span>
+              </div>
+            )}
           </div>
           
           <div className="input-buttons">
@@ -1083,7 +1114,7 @@ function App() {
             ) : (
               <button 
                 onClick={sendMessage}
-                disabled={!input.trim() || ollamaStatus === 'error' || editingMessageId || isRespondingToEdit.current}
+                disabled={!input.trim() || ollamaStatus === 'error' || editingMessageId || isRespondingToEdit.current || availableModels.length === 0}
                 className="send-btn"
                 title="Send message (Enter)"
               >
