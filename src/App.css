@@ -1039,8 +1039,33 @@ html, body {
   color: #fff;
 }
 
+/* Fixed: Use div for paragraphs to prevent hydration errors */
 .markdown-p {
   margin: 0.75rem 0;
+  line-height: 1.6;
+  font-size: 0.9375rem;
+  color: #e0e0e0;
+}
+
+.markdown-p:first-child {
+  margin-top: 0;
+}
+
+.markdown-p:last-child {
+  margin-bottom: 0;
+}
+
+/* Container for paragraphs with block children */
+.markdown-block-container {
+  margin: 0.75rem 0;
+}
+
+.markdown-block-container > *:first-child {
+  margin-top: 0;
+}
+
+.markdown-block-container > *:last-child {
+  margin-bottom: 0;
 }
 
 .markdown-ul, .markdown-ol {

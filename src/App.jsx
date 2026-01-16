@@ -170,22 +170,20 @@ const detectLanguageFromCode = (code) => {
   const trimmedCode = code.trim();
   const firstLines = code.substring(0, 200).toLowerCase();
   
-  if (code.length < 100 && !code.includes('\n') && !code.includes('```')) {
-    if (shouldTreatAsCommand(code)) {
-      return 'bash';
-    }
+  if (shouldTreatAsCommand(code)) {
+    return 'bash';
+  }
+  
+  const wordCount = trimmedCode.split(/\s+/).length;
+  const specialChars = (trimmedCode.match(/[{}()\[\]=<>;]/g) || []).length;
+  
+  if (wordCount <= 3 && specialChars === 0 && !trimmedCode.includes('://')) {
+    const isSimpleReference = /^[\w.-]+$/.test(trimmedCode) || 
+                             /^[\w.-]+\.[a-z]{2,4}$/i.test(trimmedCode) ||
+                             /^[A-Z_][A-Z0-9_]*$/.test(trimmedCode);
     
-    const wordCount = code.split(/\s+/).length;
-    const specialChars = (code.match(/[{}()\[\]=<>;]/g) || []).length;
-    
-    if (wordCount <= 3 && specialChars === 0 && !code.includes('://')) {
-      const isSimpleReference = /^[\w.-]+$/.test(trimmedCode) || 
-                               /^[\w.-]+\.[a-z]{2,4}$/i.test(trimmedCode) ||
-                               /^[A-Z_][A-Z0-9_]*$/.test(trimmedCode);
-      
-      if (isSimpleReference) {
-        return 'text';
-      }
+    if (isSimpleReference) {
+      return 'text';
     }
   }
   
@@ -229,11 +227,6 @@ const detectLanguageFromCode = (code) => {
     }
   }
   
-  const isInlineCodeLike = code.includes('`') && code.length < 100 && !code.includes('```');
-  if (isInlineCodeLike) {
-    return 'text';
-  }
-  
   if (code.includes('=') && !code.includes('==') && code.split('\n').length > 1) {
     const lines = code.split('\n');
     const configLines = lines.filter(line => line.includes('=') && !line.trim().startsWith('#')).length;
@@ -256,11 +249,8 @@ const CodeBlock = React.memo(({ language, code, onCopy, isInline = false }) => {
   });
 
   const detectedLanguage = language || detectLanguageFromCode(code);
-
-  const shouldBeInline = !isInline && (
-    (detectedLanguage === 'text' && code.length < 80) ||
-    (code.split('\n').length === 1 && code.length < 120)
-  );
+  
+  const shouldBeInline = !isInline && detectedLanguage === 'text';
 
   const handleCopy = async () => {
     try {
@@ -356,6 +346,7 @@ const CodeBlock = React.memo(({ language, code, onCopy, isInline = false }) => {
   );
 });
 
+// Fixed MarkdownComponents to prevent hydration errors
 const MarkdownComponents = {
   h1: ({node, ...props}) => <h1 {...props} className="markdown-h1" />,
   h2: ({node, ...props}) => <h2 {...props} className="markdown-h2" />,
@@ -364,7 +355,36 @@ const MarkdownComponents = {
   h5: ({node, ...props}) => <h5 {...props} className="markdown-h5" />,
   h6: ({node, ...props}) => <h6 {...props} className="markdown-h6" />,
   
-  p: ({node, children, ...props}) => <p {...props} className="markdown-p">{children}</p>,
+  // Fixed: Use div instead of p to prevent hydration errors with block children
+  p: ({node, children, ...props}) => {
+    // Check if children contain block-level elements
+    const childrenArray = React.Children.toArray(children);
+    const hasBlockChildren = childrenArray.some(child => {
+      if (React.isValidElement(child)) {
+        // Check if child is a known block element
+        const blockElements = ['div', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote', 'pre', 'table'];
+        if (blockElements.includes(child.type)) return true;
+        
+        // Check for CodeBlock components
+        if (child.type === CodeBlock) return true;
+        
+        // Check for code blocks by class name
+        if (child.props?.className?.includes('code-block-wrapper')) return true;
+        
+        // Check for React syntax highlighter
+        if (child.type?.name === 'SyntaxHighlighter') return true;
+      }
+      return false;
+    });
+
+    // If children contain block elements, render as div
+    if (hasBlockChildren) {
+      return <div {...props} className="markdown-block-container">{children}</div>;
+    }
+
+    // Otherwise, render as div but with paragraph styling
+    return <div {...props} className="markdown-p">{children}</div>;
+  },
   
   ul: ({node, ...props}) => <ul {...props} className="markdown-ul" />,
   
@@ -380,15 +400,6 @@ const MarkdownComponents = {
     const codeString = String(children).replace(/\n$/, '');
     
     if (inline) {
-      const isCommand = shouldTreatAsCommand(codeString);
-      const commandClass = isCommand ? 'command' : '';
-      return <code {...props} className={`inline-code ${commandClass}`}>{children}</code>;
-    }
-    
-    const isLikelyCode = detectLanguageFromCode(codeString) !== 'text';
-    const isSingleLine = !codeString.includes('\n');
-    
-    if (!isLikelyCode && (isSingleLine && codeString.length < 80)) {
       const isCommand = shouldTreatAsCommand(codeString);
       const commandClass = isCommand ? 'command' : '';
       return <code {...props} className={`inline-code ${commandClass}`}>{children}</code>;
@@ -444,10 +455,12 @@ const MarkdownComponents = {
   
   tasklist: (props) => <ul {...props} className="markdown-tasklist" />,
   
+  // Fixed: Handle pre elements that contain code blocks
   pre: (props) => {
     const children = React.Children.toArray(props.children);
     const isCodeBlock = children.some(child => 
-      React.isValidElement(child) && child.type === 'code'
+      React.isValidElement(child) && 
+      (child.type === 'code' || child.type === CodeBlock || child.props?.className?.includes('code-block-wrapper'))
     );
     
     if (isCodeBlock) {
@@ -1034,6 +1047,17 @@ function App() {
   const searchInputRef = useRef(null);
   const isMounted = useRef(true);
 
+  // Debug useEffect to monitor state changes
+  useEffect(() => {
+    console.log('Messages state:', {
+      count: messages.length,
+      lastMessage: messages[messages.length - 1],
+      isLoading,
+      isStreaming,
+      ollamaStatus
+    });
+  }, [messages, isLoading, isStreaming, ollamaStatus]);
+
   const announce = useCallback((message, priority = 'polite') => {
     if (!isMounted.current) return;
     setActiveAnnouncement(message);
@@ -1471,6 +1495,12 @@ function App() {
   const sendStreamingResponse = async (userInput, isEdit = false) => {
     if (!isInitialized || (isLoading && !isEdit)) return;
     
+    console.log('Starting streaming response...', { 
+      userInput: userInput.substring(0, 100) + (userInput.length > 100 ? '...' : ''),
+      isEdit, 
+      selectedModel 
+    });
+    
     const currentModel = selectedModel;
     if (!currentModel || availableModels.length === 0 || !availableModels.includes(currentModel)) {
       setMessages(prev => [...prev, {
@@ -1488,10 +1518,12 @@ function App() {
     setIsStreaming(true);
     setIsLoading(true);
     
+    // Remove any existing partial messages
     setMessages(prev => prev.filter(msg => !(msg.sender === 'bot' && msg.isPartial)));
     
     const botMessageId = Date.now() + 1;
     let fullResponse = '';
+    let receivedAnyContent = false;
     
     const botMessage = {
       id: botMessageId,
@@ -1511,49 +1543,117 @@ function App() {
       const currentMessages = messages.filter(msg => !msg.isPartial);
       const chatMessages = prepareChatMessages(currentMessages, currentModel, userInput);
       
+      // Add system message for code handling if user sends code
+      const isCodeInput = detectLanguageFromCode(userInput) !== 'text' || 
+                         userInput.includes('```') || 
+                         userInput.includes('function') ||
+                         userInput.includes('class ') ||
+                         userInput.includes('import ') ||
+                         userInput.includes('export ');
+      
+      console.log('Sending request to Ollama API...', {
+        model: currentModel,
+        messageCount: chatMessages.length,
+        lastUserInput: userInput.substring(0, 200) + (userInput.length > 200 ? '...' : ''),
+        isCodeInput
+      });
+      
+      // Add system prompt for better code handling
+      const enhancedMessages = isCodeInput ? [
+        {
+          role: 'system',
+          content: 'You are a helpful AI assistant that helps with code. When given code, analyze it, explain it, and provide improvements or fixes. Format code responses with proper markdown code blocks.'
+        },
+        ...chatMessages
+      ] : chatMessages;
+      
       const response = await fetch(`${OLLAMA_API_URL}/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
         body: JSON.stringify({ 
           model: currentModel, 
-          messages: chatMessages, 
+          messages: enhancedMessages, 
           stream: true, 
-          options: { temperature: 0.7 } 
+          options: { 
+            temperature: 0.7,
+            num_predict: 4096,
+            top_p: 0.9,
+            repeat_penalty: 1.1
+          } 
         }),
         signal: controller.signal
       });
       
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        const errorText = await response.text();
+        console.error('API Error:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
       
+      console.log('Stream started, reading response...');
+      
       const reader = response.body.getReader();
-      const decoder = new TextDecoder();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      let chunkCount = 0;
       
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          console.log('Stream completed, chunks processed:', chunkCount);
+          break;
+        }
         
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
+        chunkCount++;
+        // Decode the chunk
+        const chunk = decoder.decode(value, { stream: true });
+        buffer += chunk;
+        
+        // Split by newlines to process multiple JSON objects
+        const lines = buffer.split('\n');
+        
+        // Keep the last incomplete line in buffer
+        buffer = lines.pop() || '';
         
         for (const line of lines) {
           if (!line.trim()) continue;
           
           try {
-            const jsonStr = line.startsWith('data: ') ? line.substring(6) : line;
-            const data = JSON.parse(jsonStr);
+            let data;
+            // Handle both "data: " prefix and raw JSON
+            if (line.startsWith('data: ')) {
+              data = JSON.parse(line.substring(6));
+            } else {
+              data = JSON.parse(line);
+            }
+            
+            // Debug: log first few chunks to see what we're getting
+            if (chunkCount <= 3) {
+              console.log('Chunk data:', {
+                hasMessage: !!data.message,
+                hasContent: !!data.message?.content,
+                contentLength: data.message?.content?.length || 0,
+                done: data.done,
+                model: data.model
+              });
+            }
             
             if (data.message?.content) {
+              receivedAnyContent = true;
               fullResponse += data.message.content;
               
+              // Update message with new content
               setMessages(prev => {
                 const newMessages = [...prev];
                 const messageIndex = newMessages.findIndex(msg => msg.id === botMessageId);
                 if (messageIndex !== -1) {
                   newMessages[messageIndex] = {
                     ...newMessages[messageIndex],
-                    text: fullResponse
+                    text: fullResponse,
+                    timestamp: new Date()
                   };
                 }
                 return newMessages;
@@ -1561,40 +1661,93 @@ function App() {
             }
             
             if (data.done) {
+              console.log('Stream done, final response length:', fullResponse.length, 'chunks:', chunkCount);
+              // Final update
               setMessages(prev => prev.map(msg => 
                 msg.id === botMessageId 
-                  ? { ...msg, text: fullResponse, isPartial: false }
+                  ? { 
+                      ...msg, 
+                      text: fullResponse || '\n\n[No content received from model]',
+                      isPartial: false,
+                      timestamp: new Date()
+                    }
                   : msg
               ));
+              setIsLoading(false);
+              setIsStreaming(false);
+              setAbortController(null);
               return;
             }
           } catch (e) {
-            // Skip parsing errors
+            // Log parsing errors but continue
+            if (chunkCount <= 5) {
+              console.warn('Chunk parsing error (line preview):', line.substring(0, 200), 'Error:', e.message);
+            }
+            continue;
           }
         }
       }
       
-      setMessages(prev => prev.map(msg => 
-        msg.id === botMessageId 
-          ? { ...msg, text: fullResponse, isPartial: false }
-          : msg
-      ));
+      // If we exit the loop without data.done, mark as complete anyway
+      console.log('Loop exited, finalizing response. Received content:', receivedAnyContent);
+      if (receivedAnyContent && fullResponse) {
+        setMessages(prev => prev.map(msg => 
+          msg.id === botMessageId 
+            ? { ...msg, text: fullResponse, isPartial: false }
+            : msg
+        ));
+      } else {
+        // If we got no response at all, show an error
+        console.error('No content received from model');
+        setMessages(prev => prev.map(msg => 
+          msg.id === botMessageId 
+            ? { 
+                ...msg, 
+                text: '\n\n⚠️ **No response received from the model.**\n\nPossible reasons:\n1. The model may be overloaded\n2. The input may be too long for the model\'s context\n3. The model may not support code completion\n\nTry:\n- Using a simpler model like llama3.1\n- Sending smaller code snippets\n- Asking a text-based question first',
+                isPartial: false,
+                isError: true
+              }
+            : msg
+        ));
+      }
       
     } catch (error) {
       console.error('Stream error:', error);
       
-      setMessages(prev => prev.map(msg => 
-        msg.id === botMessageId 
-          ? { 
-              ...msg, 
-              text: fullResponse + (error.name === 'AbortError' ? '\n\n[Generation stopped]' : `\n\n[Error: ${error.message}]`),
-              isPartial: false,
-              isError: error.name !== 'AbortError'
-            }
-          : msg
-      ));
+      // Check if it's an abort error
+      if (error.name === 'AbortError') {
+        setMessages(prev => prev.map(msg => 
+          msg.id === botMessageId 
+            ? { 
+                ...msg, 
+                text: fullResponse || '\n\n[Generation stopped by user]',
+                isPartial: false,
+                isError: false
+              }
+            : msg
+        ));
+        announce('Generation stopped');
+      } else {
+        // Other error
+        const errorMessage = error.message.includes('Failed to fetch') 
+          ? 'Cannot connect to Ollama. Make sure it\'s running on http://localhost:11434'
+          : error.message;
+          
+        setMessages(prev => prev.map(msg => 
+          msg.id === botMessageId 
+            ? { 
+                ...msg, 
+                text: fullResponse + `\n\n❌ **Error:** ${errorMessage}`,
+                isPartial: false,
+                isError: true
+              }
+            : msg
+        ));
+        announce(`Error: ${errorMessage}`, 'assertive');
+      }
       
     } finally {
+      // Ensure loading states are cleared even on errors
       setIsLoading(false);
       setIsStreaming(false);
       setAbortController(null);
@@ -1730,6 +1883,65 @@ function App() {
   useEffect(() => {
     searchConversation(searchTerm);
   }, [searchTerm, searchConversation]);
+
+  // Add a simple test function for Ollama
+  const testOllamaConnection = async () => {
+    try {
+      console.log('Testing Ollama connection...');
+      
+      // Test 1: Check if API is reachable
+      const tagsResponse = await fetch(`${OLLAMA_API_URL}/tags`);
+      if (!tagsResponse.ok) {
+        throw new Error(`API not reachable: ${tagsResponse.status}`);
+      }
+      
+      const tagsData = await tagsResponse.json();
+      console.log('Available models:', tagsData.models?.map(m => m.name) || []);
+      
+      // Test 2: Try a simple completion with the current model
+      const testResponse = await fetch(`${OLLAMA_API_URL}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: selectedModel,
+          prompt: 'Say "Hello"',
+          stream: false
+        })
+      });
+      
+      if (testResponse.ok) {
+        const testData = await testResponse.json();
+        console.log('Test completion successful:', testData.response);
+        
+        // Show a test message
+        setMessages(prev => [...prev, {
+          id: Date.now(),
+          sender: 'bot',
+          text: `Connection test successful! Model "${selectedModel}" responded: "${testData.response.substring(0, 100)}..."`,
+          timestamp: new Date(),
+          isPartial: false
+        }]);
+        
+        return true;
+      } else {
+        throw new Error(`Test completion failed: ${testResponse.status}`);
+      }
+      
+    } catch (error) {
+      console.error('Ollama connection test failed:', error);
+      
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        sender: 'bot',
+        text: `❌ Connection test failed: ${error.message}`,
+        timestamp: new Date(),
+        isPartial: false,
+        isError: true
+      }]);
+      
+      return false;
+    }
+  };
 
   const LoadingSkeleton = () => (
     <div className="loading-skeleton">
@@ -1944,6 +2156,10 @@ function App() {
                   <Upload size={16} />
                   <span>Import Conversation</span>
                 </button>
+                <button onClick={testOllamaConnection} className="export-option" disabled={isLoading}>
+                  <Wifi size={16} />
+                  <span>Test Connection</span>
+                </button>
               </div>
             )}
           </div>
@@ -1971,6 +2187,9 @@ function App() {
                   <AlertCircle size={24} aria-hidden="true" />
                   <p>Cannot connect to Ollama</p>
                   <p className="error-hint">Make sure Ollama is running on http://localhost:11434</p>
+                  <button onClick={testOllamaConnection} className="test-connection-btn">
+                    Test Connection
+                  </button>
                 </div>
               )}
               {availableModels.length === 0 && ollamaStatus === 'connected' && (
@@ -2016,6 +2235,10 @@ function App() {
                 <div className="hint-item">
                   <Search size={16} aria-hidden="true" />
                   <span><kbd>Ctrl</kbd> + <kbd>F</kbd> to search conversation</span>
+                </div>
+                <div className="hint-item">
+                  <Cpu size={16} aria-hidden="true" />
+                  <span>Try simple text first if code isn't working</span>
                 </div>
               </div>
             </div>
