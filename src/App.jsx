@@ -42,7 +42,6 @@ import {
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { 
   vscDarkPlus, 
-  vs, 
   atomDark, 
   dracula, 
   tomorrow, 
@@ -62,7 +61,6 @@ const STORAGE_KEYS = {
 
 const CODE_THEMES = {
   'vsc-dark-plus': { name: 'VS Code Dark+', style: vscDarkPlus, type: 'dark' },
-  'vs': { name: 'Visual Studio', style: vs, type: 'light' },
   'atom-dark': { name: 'Atom Dark', style: atomDark, type: 'dark' },
   'dracula': { name: 'Dracula', style: dracula, type: 'dark' },
   'tomorrow': { name: 'Tomorrow', style: tomorrow, type: 'light' },
@@ -79,29 +77,6 @@ const formatNumber = (num) => {
     return (num / 1000).toFixed(1) + 'K';
   }
   return num.toLocaleString();
-};
-
-const throttle = (func, limit) => {
-  let inThrottle;
-  return function(...args) {
-    if (!inThrottle) {
-      func.apply(this, args);
-      inThrottle = true;
-      setTimeout(() => inThrottle = false, limit);
-    }
-  };
-};
-
-const debounce = (func, wait) => {
-  let timeout;
-  return function executedFunction(...args) {
-    const later = () => {
-      clearTimeout(timeout);
-      func(...args);
-    };
-    clearTimeout(timeout);
-    timeout = setTimeout(later, wait);
-  };
 };
 
 const shouldTreatAsCommand = (text) => {
@@ -774,7 +749,7 @@ const CustomDropdown = ({ options, value, onChange, disabled, placeholder = "Sel
     };
   }, []);
 
-  const fetchModelInfoForTooltip = useCallback(debounce(async (modelName) => {
+  const fetchModelInfoForTooltip = useCallback(async (modelName) => {
     if (!modelName || !isMounted.current) return;
     
     setIsLoadingInfo(true);
@@ -788,7 +763,7 @@ const CustomDropdown = ({ options, value, onChange, disabled, placeholder = "Sel
       console.error('Failed to fetch model info:', error);
       if (isMounted.current) setIsLoadingInfo(false);
     }
-  }, 300), []);
+  }, []);
 
   useEffect(() => {
     if (hoveredModel) {
@@ -796,10 +771,6 @@ const CustomDropdown = ({ options, value, onChange, disabled, placeholder = "Sel
     } else {
       setHoveredModelInfo(null);
     }
-    
-    return () => {
-      fetchModelInfoForTooltip.cancel?.();
-    };
   }, [hoveredModel, fetchModelInfoForTooltip]);
 
   const handleSelect = (optionValue) => {
@@ -1491,7 +1462,7 @@ function App() {
             setMessages(prev => prev.slice(0, editedMessageIndex + 1));
           }
           setTimeout(async () => {
-            await sendStreamingResponse(editingText, true);
+            await sendStreamingResponse(editingText);
             isRespondingToEdit.current = false;
           }, 150);
         }, 50);
@@ -1499,7 +1470,7 @@ function App() {
         setTimeout(() => {
           setMessages(prev => prev.slice(0, editedMessageIndex + 1));
           setTimeout(async () => {
-            await sendStreamingResponse(editingText, true);
+            await sendStreamingResponse(editingText);
             isRespondingToEdit.current = false;
           }, 150);
         }, 50);
@@ -1540,15 +1511,14 @@ function App() {
     setIsMobileDropdownOpen(false);
     textareaRef.current?.focus();
     
-    await sendStreamingResponse(input, false);
+    await sendStreamingResponse(input);
   };
 
-const sendStreamingResponse = async (userInput, isEdit = false) => {
-  if (!isInitialized || (isLoading && !isEdit)) return;
+const sendStreamingResponse = async (userInput) => {
+  if (!isInitialized || isLoading) return;
   
   console.log('Starting streaming response...', { 
     userInput: userInput.substring(0, 100) + (userInput.length > 100 ? '...' : ''),
-    isEdit, 
     selectedModel 
   });
   
@@ -1932,7 +1902,7 @@ const sendStreamingResponse = async (userInput, isEdit = false) => {
       }
       
       setTimeout(async () => {
-        await sendStreamingResponse(lastUserMessage.text, false);
+        await sendStreamingResponse(lastUserMessage.text);
       }, 100);
     }
   };
