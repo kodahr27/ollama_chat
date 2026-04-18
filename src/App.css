@@ -1210,6 +1210,8 @@ body {
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-lg);
   transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
 }
 
 .message-input-container:focus-within {
@@ -1249,6 +1251,8 @@ body {
 }
 
 .streaming-status, .editing-status, .no-models-warning {
+  position: fixed;
+  bottom: 12px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1303,6 +1307,7 @@ body {
   cursor: pointer;
   transition: all var(--transition-fast);
   border: none;
+  transform: translateY(-7px);
 }
 
 .send-btn {
@@ -1327,7 +1332,6 @@ body {
 
 .stop-btn:hover {
   background: #dc2626;
-  transform: translateY(-1px);
 }
 
 /* ========================================
