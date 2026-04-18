@@ -397,7 +397,7 @@ body {
 
 .chat-window-container {
   position: relative;
-  padding-top: 120px;
+  padding-top: 80px;
   flex: 1;
   overflow-y: auto;
   position: relative;
