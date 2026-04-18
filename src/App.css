@@ -114,6 +114,8 @@ body {
 .app-header {
   position: fixed;
   top: 0;
+  right: 0;
+  left: 0;
   background: var(--header-gradient);
   border-bottom: 1px solid var(--border-light);
   padding: 12px 24px;
@@ -1187,6 +1189,8 @@ body {
 .input-area {
   position: fixed;
   bottom: 0;
+  right: 0;
+  left: 0;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border-light);
   padding: 20px 24px;
