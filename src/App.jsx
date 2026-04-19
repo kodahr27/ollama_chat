@@ -1078,6 +1078,41 @@ const LoadingSkeleton = () => (
   </div>
 );
 
+// Device detection hook
+const useDeviceDetection = () => {
+  const [isMobile, setIsMobile] = useState(false);
+  const [isTablet, setIsTablet] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(true);
+
+  useEffect(() => {
+    const checkDevice = () => {
+      const width = window.innerWidth;
+      const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      const userAgent = navigator.userAgent.toLowerCase();
+      const isMobileUA = /android|webos|iphone|ipod|blackberry|windows phone/i.test(userAgent);
+      
+      const isMobileDevice = width <= 768 && (hasTouch || isMobileUA);
+      const isTabletDevice = width > 768 && width <= 1024 && (hasTouch || isMobileUA);
+      const isDesktopDevice = !isMobileDevice && !isTabletDevice;
+      
+      setIsMobile(isMobileDevice);
+      setIsTablet(isTabletDevice);
+      setIsDesktop(isDesktopDevice);
+    };
+    
+    checkDevice();
+    window.addEventListener('resize', checkDevice);
+    window.addEventListener('orientationchange', checkDevice);
+    
+    return () => {
+      window.removeEventListener('resize', checkDevice);
+      window.removeEventListener('orientationchange', checkDevice);
+    };
+  }, []);
+  
+  return { isMobile, isTablet, isDesktop };
+};
+
 function App() {
   const [messages, setMessages] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.CONVERSATION);
@@ -1110,10 +1145,13 @@ function App() {
     return saved ? JSON.parse(saved) : [];
   });
   
+  // Device detection
+  const { isMobile, isTablet, isDesktop } = useDeviceDetection();
+  
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const editTextareaRef = useRef(null);
-  const editTextRef = useRef(''); // Add ref for edit text
+  const editTextRef = useRef('');
   const isRespondingToEdit = useRef(false);
   const lastProcessedEdit = useRef(null);
   const exportRef = useRef(null);
@@ -1127,9 +1165,12 @@ function App() {
       lastMessage: messages[messages.length - 1],
       isLoading,
       isStreaming,
-      ollamaStatus
+      ollamaStatus,
+      isMobile,
+      isTablet,
+      isDesktop
     });
-  }, [messages, isLoading, isStreaming, ollamaStatus]);
+  }, [messages, isLoading, isStreaming, ollamaStatus, isMobile, isTablet, isDesktop]);
 
   const announce = useCallback((message, priority = 'polite') => {
     if (!isMounted.current) return;
@@ -1439,8 +1480,8 @@ function App() {
 
   const startEditing = (messageId, currentText) => {
     setEditingMessageId(messageId);
-    editTextRef.current = currentText; // Store in ref
-    setEditingText(currentText); // Keep for consistency
+    editTextRef.current = currentText;
+    setEditingText(currentText);
     setIsMobileDropdownOpen(false);
     announce('Editing message. Press Escape to cancel or Enter to save.');
   };
@@ -1453,12 +1494,12 @@ function App() {
 
   const handleEditTextChange = (e) => {
     const newValue = e.target.value;
-    editTextRef.current = newValue; // Update ref without causing re-render
-    setEditingText(newValue); // Keep state for display if needed elsewhere
+    editTextRef.current = newValue;
+    setEditingText(newValue);
   };
 
   const saveEditedMessage = async (messageId) => {
-    const currentEditText = editTextRef.current; // Use ref instead of state
+    const currentEditText = editTextRef.current;
     if (!currentEditText.trim() || isLoading || isRespondingToEdit.current) {
       cancelEditing();
       return;
@@ -1542,377 +1583,376 @@ function App() {
     await sendStreamingResponse(input);
   };
 
-const sendStreamingResponse = async (userInput) => {
-  if (!isInitialized || isLoading) return;
-  
-  console.log('Starting streaming response...', { 
-    userInput: userInput.substring(0, 100) + (userInput.length > 100 ? '...' : ''),
-    selectedModel 
-  });
-  
-  const currentModel = selectedModel;
-  if (!currentModel || availableModels.length === 0 || !availableModels.includes(currentModel)) {
-    setMessages(prev => [...prev, {
-      id: Date.now(),
+  const sendStreamingResponse = async (userInput) => {
+    if (!isInitialized || isLoading) return;
+    
+    console.log('Starting streaming response...', { 
+      userInput: userInput.substring(0, 100) + (userInput.length > 100 ? '...' : ''),
+      selectedModel 
+    });
+    
+    const currentModel = selectedModel;
+    if (!currentModel || availableModels.length === 0 || !availableModels.includes(currentModel)) {
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        sender: 'bot',
+        text: `Error: Model "${currentModel}" is not available. Please pull it using: ollama pull ${currentModel}`,
+        timestamp: new Date(),
+        isPartial: false,
+        isError: true
+      }]);
+      setIsLoading(false);
+      return;
+    }
+    
+    setIsStreaming(true);
+    setIsLoading(true);
+    
+    // Remove any existing partial messages
+    setMessages(prev => prev.filter(msg => !(msg.sender === 'bot' && msg.isPartial)));
+    
+    const botMessageId = Date.now() + 1;
+    let fullResponse = '';
+    let receivedAnyContent = false;
+    let currentThinkingContent = '';
+    let currentMainContent = '';
+    
+    // Thinking tag detection state
+    let thinkTagState = 'NONE'; // NONE, POSSIBLE_THINK, IN_THINK, COMPLETED
+    let thinkTagBuffer = '';
+    
+    // Create initial bot message
+    const botMessage = {
+      id: botMessageId,
       sender: 'bot',
-      text: `Error: Model "${currentModel}" is not available. Please pull it using: ollama pull ${currentModel}`,
+      text: '',
       timestamp: new Date(),
-      isPartial: false,
-      isError: true
-    }]);
-    setIsLoading(false);
-    return;
-  }
-  
-  setIsStreaming(true);
-  setIsLoading(true);
-  
-  // Remove any existing partial messages
-  setMessages(prev => prev.filter(msg => !(msg.sender === 'bot' && msg.isPartial)));
-  
-  const botMessageId = Date.now() + 1;
-  let fullResponse = '';
-  let receivedAnyContent = false;
-  let currentThinkingContent = '';
-  let currentMainContent = '';
-  
-  // Thinking tag detection state
-  let thinkTagState = 'NONE'; // NONE, POSSIBLE_THINK, IN_THINK, COMPLETED
-  let thinkTagBuffer = ''; // Buffer to accumulate potential tag characters
-  let isProcessingThinkTag = false;
-  
-  // Create initial bot message
-  const botMessage = {
-    id: botMessageId,
-    sender: 'bot',
-    text: '',
-    timestamp: new Date(),
-    isPartial: true,
-    model: currentModel,
-    thinking: null,
-    isThinkingStreaming: false
-  };
-  
-  setMessages(prev => [...prev, botMessage]);
-  
-  try {
-    const controller = new AbortController();
-    setAbortController(controller);
-    
-    // Prepare the prompt with conversation history
-    let prompt = '';
-    
-    // Add conversation history
-    const recentMessages = messages.slice(-10);
-    for (const msg of recentMessages) {
-      if (msg.sender === 'user') {
-        prompt += `User: ${msg.text}\n\n`;
-      } else if (msg.sender === 'bot' && !msg.isError) {
-        prompt += `Assistant: ${msg.text}\n\n`;
-      }
-    }
-    
-    prompt += `User: ${userInput}\n\nAssistant: `;
-    
-    console.log('Sending request to Ollama API...', {
+      isPartial: true,
       model: currentModel,
-      promptLength: prompt.length
-    });
+      thinking: null,
+      isThinkingStreaming: false
+    };
     
-    const response = await fetch(`${OLLAMA_API_URL}/generate`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify({ 
-        model: currentModel, 
-        prompt: prompt,
-        stream: true,
-        options: { 
-          temperature: 0.7,
-          num_predict: 4096,
-          top_p: 0.9,
-          repeat_penalty: 1.1,
-          stop: ["User:", "\nUser", "Assistant:"]
-        } 
-      }),
-      signal: controller.signal
-    });
+    setMessages(prev => [...prev, botMessage]);
     
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('API Error:', errorText);
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-    
-    console.log('Stream started, reading response...');
-    
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buffer = '';
-    let chunkCount = 0;
-    let newContext = null;
-    let lastUpdateTime = Date.now();
-    
-    // Helper function to process characters and detect think tags
-    const processCharacter = (char) => {
-      // If we've already completed a think tag, just add to main content
-      if (thinkTagState === 'COMPLETED') {
-        currentMainContent += char;
-        return;
-      }
+    try {
+      const controller = new AbortController();
+      setAbortController(controller);
       
-      // If we're inside a think tag, add to thinking content
-      if (thinkTagState === 'IN_THINK') {
-        currentThinkingContent += char;
-        
-        // Check for closing tag
-        if (currentThinkingContent.includes('</think>')) {
-          // Extract content before the closing tag
-          const closeTagIndex = currentThinkingContent.indexOf('</think>');
-          const actualThinkingContent = currentThinkingContent.substring(0, closeTagIndex);
-          const remainingAfterClose = currentThinkingContent.substring(closeTagIndex + 8);
-          
-          currentThinkingContent = actualThinkingContent;
-          thinkTagState = 'COMPLETED';
-          
-          // Add any remaining content after closing tag to main content
-          if (remainingAfterClose) {
-            currentMainContent += remainingAfterClose;
-          }
+      // Prepare the prompt with conversation history
+      let prompt = '';
+      
+      // Add conversation history
+      const recentMessages = messages.slice(-10);
+      for (const msg of recentMessages) {
+        if (msg.sender === 'user') {
+          prompt += `User: ${msg.text}\n\n`;
+        } else if (msg.sender === 'bot' && !msg.isError) {
+          prompt += `Assistant: ${msg.text}\n\n`;
         }
-        return;
       }
       
-      // Check for potential start of think tag
-      if (thinkTagState === 'NONE' || thinkTagState === 'POSSIBLE_THINK') {
-        // If we see '<', start buffering
-        if (char === '<') {
-          thinkTagState = 'POSSIBLE_THINK';
-          thinkTagBuffer = '<';
+      prompt += `User: ${userInput}\n\nAssistant: `;
+      
+      console.log('Sending request to Ollama API...', {
+        model: currentModel,
+        promptLength: prompt.length
+      });
+      
+      const response = await fetch(`${OLLAMA_API_URL}/generate`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({ 
+          model: currentModel, 
+          prompt: prompt,
+          stream: true,
+          options: { 
+            temperature: 0.7,
+            num_predict: 4096,
+            top_p: 0.9,
+            repeat_penalty: 1.1,
+            stop: ["User:", "\nUser", "Assistant:"]
+          } 
+        }),
+        signal: controller.signal
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API Error:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+      
+      console.log('Stream started, reading response...');
+      
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      let chunkCount = 0;
+      let newContext = null;
+      let lastUpdateTime = Date.now();
+      
+      // Helper function to process characters and detect think tags
+      const processCharacter = (char) => {
+        // If we've already completed a think tag, just add to main content
+        if (thinkTagState === 'COMPLETED') {
+          currentMainContent += char;
           return;
         }
         
-        // If we're buffering and have '<', check next characters
-        if (thinkTagState === 'POSSIBLE_THINK') {
-          thinkTagBuffer += char;
+        // If we're inside a think tag, add to thinking content
+        if (thinkTagState === 'IN_THINK') {
+          currentThinkingContent += char;
           
-          // Check if buffer matches the start of '<think>'
-          const thinkTagStart = '<think>';
-          
-          if (thinkTagStart.startsWith(thinkTagBuffer)) {
-            // Still matching, continue buffering
-            if (thinkTagBuffer === thinkTagStart) {
-              // Complete match! We found '<think>'
-              thinkTagState = 'IN_THINK';
-              thinkTagBuffer = '';
-              console.log('Think tag detected and activated!');
-              return; // Don't add the tag to any content
+          // Check for closing tag
+          if (currentThinkingContent.includes('</think>')) {
+            // Extract content before the closing tag
+            const closeTagIndex = currentThinkingContent.indexOf('</think>');
+            const actualThinkingContent = currentThinkingContent.substring(0, closeTagIndex);
+            const remainingAfterClose = currentThinkingContent.substring(closeTagIndex + 8);
+            
+            currentThinkingContent = actualThinkingContent;
+            thinkTagState = 'COMPLETED';
+            
+            // Add any remaining content after closing tag to main content
+            if (remainingAfterClose) {
+              currentMainContent += remainingAfterClose;
             }
-            // Still building the tag, continue buffering
+          }
+          return;
+        }
+        
+        // Check for potential start of think tag
+        if (thinkTagState === 'NONE' || thinkTagState === 'POSSIBLE_THINK') {
+          // If we see '<', start buffering
+          if (char === '<') {
+            thinkTagState = 'POSSIBLE_THINK';
+            thinkTagBuffer = '<';
             return;
-          } else {
-            // Buffer doesn't match, this wasn't a think tag
-            // Add buffered content to main content and reset
-            currentMainContent += thinkTagBuffer;
-            thinkTagState = 'NONE';
-            thinkTagBuffer = '';
-            // Now process the current character if it wasn't consumed
-            // (but we already added it via buffer, so just continue)
-            return;
+          }
+          
+          // If we're buffering and have '<', check next characters
+          if (thinkTagState === 'POSSIBLE_THINK') {
+            thinkTagBuffer += char;
+            
+            // Check if buffer matches the start of '<think>'
+            const thinkTagStart = '<think>';
+            
+            if (thinkTagStart.startsWith(thinkTagBuffer)) {
+              // Still matching, continue buffering
+              if (thinkTagBuffer === thinkTagStart) {
+                // Complete match! We found '<think>'
+                thinkTagState = 'IN_THINK';
+                thinkTagBuffer = '';
+                console.log('Think tag detected and activated!');
+                return; // Don't add the tag to any content
+              }
+              // Still building the tag, continue buffering
+              return;
+            } else {
+              // Buffer doesn't match, this wasn't a think tag
+              // Add buffered content to main content and reset
+              currentMainContent += thinkTagBuffer;
+              thinkTagState = 'NONE';
+              thinkTagBuffer = '';
+              // Now process the current character if it wasn't consumed
+              // (but we already added it via buffer, so just continue)
+              return;
+            }
           }
         }
-      }
-      
-      // Default: add character to main content
-      currentMainContent += char;
-    };
-    
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        console.log('Stream completed, chunks processed:', chunkCount);
-        break;
-      }
-      
-      chunkCount++;
-      const chunk = decoder.decode(value, { stream: true });
-      buffer += chunk;
-      
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      
-      for (const line of lines) {
-        if (!line.trim()) continue;
         
-        try {
-          let data;
-          if (line.startsWith('data: ')) {
-            data = JSON.parse(line.substring(6));
-          } else {
-            data = JSON.parse(line);
-          }
+        // Default: add character to main content
+        currentMainContent += char;
+      };
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          console.log('Stream completed, chunks processed:', chunkCount);
+          break;
+        }
+        
+        chunkCount++;
+        const chunk = decoder.decode(value, { stream: true });
+        buffer += chunk;
+        
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (!line.trim()) continue;
           
-          if (chunkCount <= 3) {
-            console.log('Chunk data:', {
-              hasResponse: !!data.response,
-              responseLength: data.response?.length || 0,
-              done: data.done,
-              thinkTagState: thinkTagState
-            });
-          }
-          
-          if (data.response) {
-            receivedAnyContent = true;
-            const chunkText = data.response;
-            fullResponse += chunkText;
-            
-            // Process each character in the chunk
-            for (let i = 0; i < chunkText.length; i++) {
-              processCharacter(chunkText[i]);
+          try {
+            let data;
+            if (line.startsWith('data: ')) {
+              data = JSON.parse(line.substring(6));
+            } else {
+              data = JSON.parse(line);
             }
             
-            // Determine if we're currently thinking
-            const isStreamingThinking = thinkTagState === 'IN_THINK';
-            
-            // Throttle updates
-            const now = Date.now();
-            if (now - lastUpdateTime > 50 || data.done) {
-              lastUpdateTime = now;
-              
-              // Update the message
-              setMessages(prev => {
-                const newMessages = [...prev];
-                const messageIndex = newMessages.findIndex(msg => msg.id === botMessageId);
-                if (messageIndex !== -1) {
-                  newMessages[messageIndex] = {
-                    ...newMessages[messageIndex],
-                    text: currentMainContent,
-                    thinking: (thinkTagState === 'IN_THINK' || thinkTagState === 'COMPLETED') && currentThinkingContent 
-                      ? currentThinkingContent 
-                      : null,
-                    isThinkingStreaming: isStreamingThinking,
-                    timestamp: new Date()
-                  };
-                }
-                return [...newMessages];
+            if (chunkCount <= 3) {
+              console.log('Chunk data:', {
+                hasResponse: !!data.response,
+                responseLength: data.response?.length || 0,
+                done: data.done,
+                thinkTagState: thinkTagState
               });
             }
-          }
-          
-          if (data.context) {
-            newContext = data.context;
-          }
-          
-          if (data.done) {
-            console.log('Stream done');
             
-            if (newContext) {
-              setConversationContext(newContext);
-            }
-            
-            // Clean up any incomplete think tag
-            if (thinkTagState === 'POSSIBLE_THINK' && thinkTagBuffer) {
-              // Incomplete tag - add buffer to main content
-              currentMainContent = thinkTagBuffer + currentMainContent;
-            }
-            
-            // Final update
-            setMessages(prev => prev.map(msg => 
-              msg.id === botMessageId 
-                ? { 
-                    ...msg, 
-                    text: currentMainContent || (receivedAnyContent ? '[No response content received]' : ''),
-                    thinking: (thinkTagState === 'COMPLETED' || (thinkTagState === 'IN_THINK' && currentThinkingContent)) 
-                      ? (currentThinkingContent || undefined)
-                      : undefined,
-                    isPartial: false,
-                    isThinkingStreaming: false,
-                    timestamp: new Date()
+            if (data.response) {
+              receivedAnyContent = true;
+              const chunkText = data.response;
+              fullResponse += chunkText;
+              
+              // Process each character in the chunk
+              for (let i = 0; i < chunkText.length; i++) {
+                processCharacter(chunkText[i]);
+              }
+              
+              // Determine if we're currently thinking
+              const isStreamingThinking = thinkTagState === 'IN_THINK';
+              
+              // Throttle updates
+              const now = Date.now();
+              if (now - lastUpdateTime > 50 || data.done) {
+                lastUpdateTime = now;
+                
+                // Update the message
+                setMessages(prev => {
+                  const newMessages = [...prev];
+                  const messageIndex = newMessages.findIndex(msg => msg.id === botMessageId);
+                  if (messageIndex !== -1) {
+                    newMessages[messageIndex] = {
+                      ...newMessages[messageIndex],
+                      text: currentMainContent,
+                      thinking: (thinkTagState === 'IN_THINK' || thinkTagState === 'COMPLETED') && currentThinkingContent 
+                        ? currentThinkingContent 
+                        : null,
+                      isThinkingStreaming: isStreamingThinking,
+                      timestamp: new Date()
+                    };
                   }
-                : msg
-            ));
-            setIsLoading(false);
-            setIsStreaming(false);
-            setAbortController(null);
-            return;
+                  return [...newMessages];
+                });
+              }
+            }
+            
+            if (data.context) {
+              newContext = data.context;
+            }
+            
+            if (data.done) {
+              console.log('Stream done');
+              
+              if (newContext) {
+                setConversationContext(newContext);
+              }
+              
+              // Clean up any incomplete think tag
+              if (thinkTagState === 'POSSIBLE_THINK' && thinkTagBuffer) {
+                // Incomplete tag - add buffer to main content
+                currentMainContent = thinkTagBuffer + currentMainContent;
+              }
+              
+              // Final update
+              setMessages(prev => prev.map(msg => 
+                msg.id === botMessageId 
+                  ? { 
+                      ...msg, 
+                      text: currentMainContent || (receivedAnyContent ? '[No response content received]' : ''),
+                      thinking: (thinkTagState === 'COMPLETED' || (thinkTagState === 'IN_THINK' && currentThinkingContent)) 
+                        ? (currentThinkingContent || undefined)
+                        : undefined,
+                      isPartial: false,
+                      isThinkingStreaming: false,
+                      timestamp: new Date()
+                    }
+                  : msg
+              ));
+              setIsLoading(false);
+              setIsStreaming(false);
+              setAbortController(null);
+              return;
+            }
+          } catch (e) {
+            if (chunkCount <= 5) {
+              console.warn('Chunk parsing error:', e.message);
+            }
+            continue;
           }
-        } catch (e) {
-          if (chunkCount <= 5) {
-            console.warn('Chunk parsing error:', e.message);
-          }
-          continue;
         }
       }
-    }
-    
-    // Clean up any incomplete think tag
-    if (thinkTagState === 'POSSIBLE_THINK' && thinkTagBuffer) {
-      currentMainContent = thinkTagBuffer + currentMainContent;
-    }
-    
-    // Final fallback
-    setMessages(prev => prev.map(msg => 
-      msg.id === botMessageId 
-        ? { 
-            ...msg, 
-            text: currentMainContent || (receivedAnyContent ? '[No response content received]' : ''),
-            thinking: (thinkTagState === 'COMPLETED' || (thinkTagState === 'IN_THINK' && currentThinkingContent)) 
-              ? (currentThinkingContent || undefined)
-              : undefined,
-            isPartial: false,
-            isThinkingStreaming: false
-          }
-        : msg
-    ));
-    
-  } catch (error) {
-    console.error('Stream error:', error);
-    
-    if (error.name === 'AbortError') {
+      
+      // Clean up any incomplete think tag
+      if (thinkTagState === 'POSSIBLE_THINK' && thinkTagBuffer) {
+        currentMainContent = thinkTagBuffer + currentMainContent;
+      }
+      
+      // Final fallback
       setMessages(prev => prev.map(msg => 
         msg.id === botMessageId 
           ? { 
               ...msg, 
-              text: currentMainContent || '\n\n[Generation stopped by user]',
+              text: currentMainContent || (receivedAnyContent ? '[No response content received]' : ''),
               thinking: (thinkTagState === 'COMPLETED' || (thinkTagState === 'IN_THINK' && currentThinkingContent)) 
                 ? (currentThinkingContent || undefined)
                 : undefined,
               isPartial: false,
-              isThinkingStreaming: false,
-              isError: false
-            }
-          : msg
-      ));
-      announce('Generation stopped');
-    } else {
-      const errorMessage = error.message.includes('Failed to fetch') 
-        ? 'Cannot connect to Ollama. Make sure it\'s running on http://localhost:11434\nTry: `ollama serve` in terminal'
-        : error.message;
-        
-      setMessages(prev => prev.map(msg => 
-        msg.id === botMessageId 
-          ? { 
-              ...msg, 
-              text: currentMainContent + `\n\n❌ **Error:** ${errorMessage}`,
-              isPartial: false,
-              isError: true,
               isThinkingStreaming: false
             }
           : msg
       ));
-      announce(`Error: ${errorMessage}`, 'assertive');
+      
+    } catch (error) {
+      console.error('Stream error:', error);
+      
+      if (error.name === 'AbortError') {
+        setMessages(prev => prev.map(msg => 
+          msg.id === botMessageId 
+            ? { 
+                ...msg, 
+                text: currentMainContent || '\n\n[Generation stopped by user]',
+                thinking: (thinkTagState === 'COMPLETED' || (thinkTagState === 'IN_THINK' && currentThinkingContent)) 
+                  ? (currentThinkingContent || undefined)
+                  : undefined,
+                isPartial: false,
+                isThinkingStreaming: false,
+                isError: false
+              }
+            : msg
+        ));
+        announce('Generation stopped');
+      } else {
+        const errorMessage = error.message.includes('Failed to fetch') 
+          ? 'Cannot connect to Ollama. Make sure it\'s running on http://localhost:11434\nTry: `ollama serve` in terminal'
+          : error.message;
+          
+        setMessages(prev => prev.map(msg => 
+          msg.id === botMessageId 
+            ? { 
+                ...msg, 
+                text: currentMainContent + `\n\n❌ **Error:** ${errorMessage}`,
+                isPartial: false,
+                isError: true,
+                isThinkingStreaming: false
+              }
+            : msg
+        ));
+        announce(`Error: ${errorMessage}`, 'assertive');
+      }
+      
+    } finally {
+      setIsLoading(false);
+      setIsStreaming(false);
+      setAbortController(null);
+      setIsMobileDropdownOpen(false);
+      setTimeout(() => textareaRef.current?.focus(), 0);
     }
-    
-  } finally {
-    setIsLoading(false);
-    setIsStreaming(false);
-    setAbortController(null);
-    setIsMobileDropdownOpen(false);
-    setTimeout(() => textareaRef.current?.focus(), 0);
-  }
-};
+  };
 
   const regenerateLastMessage = () => {
     if (!isInitialized || messages.length === 0 || isLoading || isRespondingToEdit.current) return;
@@ -2307,16 +2347,20 @@ const sendStreamingResponse = async (userInput) => {
             )}
           </div>
           
-          <div className="custom-dropdown-wrapper desktop-only">
-            <CustomDropdown
-              options={modelOptions}
-              value={selectedModel}
-              onChange={handleModelChange}
-              disabled={isLoading || ollamaStatus === 'error' || editingMessageId || isRespondingToEdit.current}
-              placeholder="Select model..."
-              isMobile={false}
-            />
-          </div>
+          {/* Desktop model selector - only show on desktop/tablet, not on mobile */}
+          {!isMobile && (
+            <div className="custom-dropdown-wrapper">
+              <CustomDropdown
+                options={modelOptions}
+                value={selectedModel}
+                onChange={handleModelChange}
+                disabled={isLoading || ollamaStatus === 'error' || editingMessageId || isRespondingToEdit.current}
+                placeholder="Select model..."
+                isMobile={false}
+              />
+            </div>
+          )}
+          
           <div className="export-import-container" ref={exportRef}>
             <button onClick={() => {
               setShowExportOptions(!showExportOptions);
@@ -2460,82 +2504,84 @@ const sendStreamingResponse = async (userInput) => {
           <div ref={messagesEndRef} />
         </div>
         
-        {/* Mobile Model Selector - Floating Button */}
-        <div className="mobile-model-selector floating">
-          <div className="mobile-dropdown-wrapper">
-            <div className={`custom-dropdown mobile ${isMobileDropdownOpen ? 'open' : ''}`}>
-              <button
-                className="floating-model-toggle"
-                onClick={() => setIsMobileDropdownOpen(!isMobileDropdownOpen)}
-                disabled={isLoading || ollamaStatus === 'error' || editingMessageId || isRespondingToEdit.current}
-                type="button"
-                aria-label={`Current model: ${selectedModel}. Tap to change.`}
-                aria-expanded={isMobileDropdownOpen}
-              >
-                <div className="dropdown-content">
-                  <Cpu size={16} aria-hidden="true" />
-                  <span className="dropdown-selected" title={selectedModel}>
-                    {selectedModel}
-                  </span>
-                </div>
-                <ChevronDown size={16} className="dropdown-arrow" aria-hidden="true" />
-              </button>
-              
-              {isMobileDropdownOpen && (
-                <>
-                  <div 
-                    className="floating-dropdown-backdrop" 
-                    onClick={() => setIsMobileDropdownOpen(false)} 
-                    aria-hidden="true"
-                  />
-                  <div 
-                    className="floating-dropdown-menu"
-                    role="listbox"
-                    aria-label="Available models"
-                  >
-                    {modelOptions.length === 0 ? (
-                      <div className="dropdown-no-models" role="alert">
-                        <div className="no-models-icon">
-                          <AlertCircle size={16} aria-hidden="true" />
-                        </div>
-                        <div className="no-models-text">
-                          <p>No models</p>
-                          <p className="no-models-hint">Check Ollama</p>
-                        </div>
-                      </div>
-                    ) : (
-                      modelOptions.map((option) => (
-                        <button
-                          key={option.value}
-                          className={`dropdown-item ${selectedModel === option.value ? 'selected' : ''}`}
-                          onClick={() => {
-                            handleModelChange(option.value);
-                            setIsMobileDropdownOpen(false);
-                          }}
-                          type="button"
-                          role="option"
-                          aria-selected={selectedModel === option.value}
-                        >
-                          <div className="dropdown-item-content">
-                            <Code size={14} aria-hidden="true" />
-                            <div className="dropdown-item-info">
-                              <span className="dropdown-item-label">
-                                {option.label}
-                              </span>
-                            </div>
-                          </div>
-                          {selectedModel === option.value && (
-                            <Check size={14} className="checkmark" aria-hidden="true" />
-                          )}
-                        </button>
-                      ))
-                    )}
+        {/* Mobile Model Selector - only show on mobile devices */}
+        {isMobile && (
+          <div className="mobile-model-selector floating">
+            <div className="mobile-dropdown-wrapper">
+              <div className={`custom-dropdown mobile ${isMobileDropdownOpen ? 'open' : ''}`}>
+                <button
+                  className="floating-model-toggle"
+                  onClick={() => setIsMobileDropdownOpen(!isMobileDropdownOpen)}
+                  disabled={isLoading || ollamaStatus === 'error' || editingMessageId || isRespondingToEdit.current}
+                  type="button"
+                  aria-label={`Current model: ${selectedModel}. Tap to change.`}
+                  aria-expanded={isMobileDropdownOpen}
+                >
+                  <div className="dropdown-content">
+                    <Cpu size={16} aria-hidden="true" />
+                    <span className="dropdown-selected" title={selectedModel}>
+                      {selectedModel.length > 20 ? selectedModel.substring(0, 20) + '...' : selectedModel}
+                    </span>
                   </div>
-                </>
-              )}
+                  <ChevronDown size={16} className="dropdown-arrow" aria-hidden="true" />
+                </button>
+                
+                {isMobileDropdownOpen && (
+                  <>
+                    <div 
+                      className="floating-dropdown-backdrop" 
+                      onClick={() => setIsMobileDropdownOpen(false)} 
+                      aria-hidden="true"
+                    />
+                    <div 
+                      className="floating-dropdown-menu"
+                      role="listbox"
+                      aria-label="Available models"
+                    >
+                      {modelOptions.length === 0 ? (
+                        <div className="dropdown-no-models" role="alert">
+                          <div className="no-models-icon">
+                            <AlertCircle size={16} aria-hidden="true" />
+                          </div>
+                          <div className="no-models-text">
+                            <p>No models</p>
+                            <p className="no-models-hint">Check Ollama</p>
+                          </div>
+                        </div>
+                      ) : (
+                        modelOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            className={`dropdown-item ${selectedModel === option.value ? 'selected' : ''}`}
+                            onClick={() => {
+                              handleModelChange(option.value);
+                              setIsMobileDropdownOpen(false);
+                            }}
+                            type="button"
+                            role="option"
+                            aria-selected={selectedModel === option.value}
+                          >
+                            <div className="dropdown-item-content">
+                              <Code size={14} aria-hidden="true" />
+                              <div className="dropdown-item-info">
+                                <span className="dropdown-item-label">
+                                  {option.label}
+                                </span>
+                              </div>
+                            </div>
+                            {selectedModel === option.value && (
+                              <Check size={14} className="checkmark" aria-hidden="true" />
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
       
       {/* Input Area with Send Button on the Right */}
