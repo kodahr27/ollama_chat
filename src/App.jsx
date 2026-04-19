@@ -920,6 +920,7 @@ const MessageComponent = React.memo(({
   editingMessageId, 
   editingText, 
   editTextareaRef,
+  editTextRef,
   isLoading,
   isRespondingToEdit,
   handleEditTextChange,
@@ -983,10 +984,10 @@ const MessageComponent = React.memo(({
               <div className="message-content">
                 {editingMessageId === msg.id ? (
                   <div className="edit-container">
-                    <div className="edit-textarea-container" data-replicated-value={editingText}>
+                    <div className="edit-textarea-container" data-replicated-value={editTextRef.current}>
                       <textarea
                         ref={editTextareaRef}
-                        value={editingText}
+                        defaultValue={editingText}
                         onChange={handleEditTextChange}
                         onKeyDown={(e) => handleEditTextareaKeyDown(e, msg.id)}
                         className="edit-textarea"
@@ -1112,6 +1113,7 @@ function App() {
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const editTextareaRef = useRef(null);
+  const editTextRef = useRef(''); // Add ref for edit text
   const isRespondingToEdit = useRef(false);
   const lastProcessedEdit = useRef(null);
   const exportRef = useRef(null);
@@ -1170,12 +1172,29 @@ function App() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
+  // Auto-resize edit textarea and set cursor position
   useEffect(() => {
     if (editingMessageId && editTextareaRef.current) {
-      editTextareaRef.current.focus();
-      editTextareaRef.current.setSelectionRange(editingText.length, editingText.length);
+      const textarea = editTextareaRef.current;
+      textarea.focus();
+      
+      // Auto-resize function
+      const resizeTextarea = () => {
+        textarea.style.height = 'auto';
+        textarea.style.height = `${textarea.scrollHeight}px`;
+      };
+      
+      resizeTextarea();
+      textarea.addEventListener('input', resizeTextarea);
+      
+      // Set cursor at the end
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      
+      return () => {
+        textarea.removeEventListener('input', resizeTextarea);
+      };
     }
-  }, [editingMessageId, editingText]);
+  }, [editingMessageId]);
 
   const performModelSwitch = useCallback(async (newModel) => {
     if (!newModel) return;
@@ -1420,7 +1439,8 @@ function App() {
 
   const startEditing = (messageId, currentText) => {
     setEditingMessageId(messageId);
-    setEditingText(currentText);
+    editTextRef.current = currentText; // Store in ref
+    setEditingText(currentText); // Keep for consistency
     setIsMobileDropdownOpen(false);
     announce('Editing message. Press Escape to cancel or Enter to save.');
   };
@@ -1428,15 +1448,23 @@ function App() {
   const cancelEditing = () => {
     setEditingMessageId(null);
     setEditingText('');
+    editTextRef.current = '';
+  };
+
+  const handleEditTextChange = (e) => {
+    const newValue = e.target.value;
+    editTextRef.current = newValue; // Update ref without causing re-render
+    setEditingText(newValue); // Keep state for display if needed elsewhere
   };
 
   const saveEditedMessage = async (messageId) => {
-    if (!editingText.trim() || isLoading || isRespondingToEdit.current) {
+    const currentEditText = editTextRef.current; // Use ref instead of state
+    if (!currentEditText.trim() || isLoading || isRespondingToEdit.current) {
       cancelEditing();
       return;
     }
     
-    const editKey = `${messageId}-${editingText}`;
+    const editKey = `${messageId}-${currentEditText}`;
     if (lastProcessedEdit.current === editKey) {
       cancelEditing();
       return;
@@ -1452,7 +1480,7 @@ function App() {
       return;
     }
     
-    setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, text: editingText, timestamp: new Date() } : msg));
+    setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, text: currentEditText, timestamp: new Date() } : msg));
     cancelEditing();
     
     if (messages[editedMessageIndex].sender === 'user') {
@@ -1462,7 +1490,7 @@ function App() {
             setMessages(prev => prev.slice(0, editedMessageIndex + 1));
           }
           setTimeout(async () => {
-            await sendStreamingResponse(editingText);
+            await sendStreamingResponse(currentEditText);
             isRespondingToEdit.current = false;
           }, 150);
         }, 50);
@@ -1470,7 +1498,7 @@ function App() {
         setTimeout(() => {
           setMessages(prev => prev.slice(0, editedMessageIndex + 1));
           setTimeout(async () => {
-            await sendStreamingResponse(editingText);
+            await sendStreamingResponse(currentEditText);
             isRespondingToEdit.current = false;
           }, 150);
         }, 50);
@@ -1926,7 +1954,6 @@ const sendStreamingResponse = async (userInput) => {
   };
 
   const handleInputChange = (e) => setInput(e.target.value);
-  const handleEditTextChange = (e) => setEditingText(e.target.value);
 
   const copyMessage = async (text) => {
     try {
@@ -2413,6 +2440,7 @@ const sendStreamingResponse = async (userInput) => {
                   editingMessageId={editingMessageId}
                   editingText={editingText}
                   editTextareaRef={editTextareaRef}
+                  editTextRef={editTextRef}
                   isLoading={isLoading}
                   isRespondingToEdit={isRespondingToEdit}
                   handleEditTextChange={handleEditTextChange}
